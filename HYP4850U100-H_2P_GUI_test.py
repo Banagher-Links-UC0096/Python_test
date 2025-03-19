@@ -187,11 +187,12 @@ for i in range(para_list):
     unit_data1.append(para_data[i][4])
 
 # ----------データ変換
+def change_minus(rdd):return rdd-65536 if rdd>32767 else rdd
 def change_type(data_type,rdd,sys_volt,d_type,d_add):                 # データタイプ変換
     if data_type<5:
         if data_type<4:                                         # 1/10,1/100,1/1000判定
             if d_type==1 :                                      # 16bit
-                if rdd>32767 :rdd=rdd-65536
+                rdd=change_minus(rdd)
             if d_type==2 :                                      # 32byte
                 if rdd>2147483647 :rdd=rdd-4294967295
             data_list=[rdd,rdd/10,rdd/100,rdd/1000]
@@ -204,7 +205,7 @@ def change_type(data_type,rdd,sys_volt,d_type,d_add):                 # デー�
     if data_type==5:d=chr(rdd)                                  # 文字データ判定　
     if data_type==6:d=data_list["OFF","ON"][rdd]                # ON/OFF判定  
     if data_type==7:                                            # 時刻判定
-        ym=hex(rdd)[2:].zfill(2)
+        ym=hex(rdd)[2:].zfill(4)
         d=str(int(ym[0:2], 16)).zfill(2)+":"+str(int(ym[2:4], 16)).zfill(2)
     if data_type>=8:
         d=para_data[d_add][rdd+5]                          # 拡張判定
