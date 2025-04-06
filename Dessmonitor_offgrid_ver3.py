@@ -142,13 +142,48 @@ for f in all_files:
 # 全ファイルのデータを計算
 total_time_zone_totals = defaultdict(float)
 total_loss_zone_totals = defaultdict(float)
+
+# データ期間を記録するための変数
+all_dates = []
+
 for file in all_files:
-    #print(f"ファイルを処理中: {file}")
+    # 各ファイルのデータを計算
     time_zone_totals, loss_zone_totals = calculate_time_data(file)
+
+    # データ期間を取得（1列目の日付データから算出）
+    wb = openpyxl.load_workbook(file)
+    sheet = wb.active
+    for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row):  # ヘッダーをスキップ
+        date_cell = row[0].value
+
+        # 日付データが文字列の場合を考慮して変換
+        if isinstance(date_cell, str):
+            try:
+                date_cell = datetime.strptime(date_cell, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                try:
+                    date_cell = datetime.strptime(date_cell, "%Y-%m-%d")
+                except ValueError:
+                    print(f"無効な日付データ: {date_cell}")
+                    continue
+
+        # 日付データが datetime 型の場合のみ処理
+        if isinstance(date_cell, datetime):
+            all_dates.append(date_cell.date())
+
+    # 各タイムゾーンのデータを集計
     for zone, total in time_zone_totals.items():
         total_time_zone_totals[zone] += total
     for zone, loss in loss_zone_totals.items():
         total_loss_zone_totals[zone] += loss
+
+# データ期間を表示
+if all_dates:
+    start_date = min(all_dates)  # 最小の日付
+    end_date = max(all_dates)    # 最大の日付
+    print(f"\nデータ期間: {start_date} ～ {end_date}")
+else:
+    print("\nデータ期間: データがありません")
 
 # 各タイムゾーンの集計を表示
 print("\nタイムゾーンごとの集計:")
