@@ -118,3 +118,89 @@ def calculate_time_data(file_path):
     }
 
     return time_zone_totals, loss_zone_totals
+
+# メイン処理
+file_path = select_file()
+
+# 選択したファイルのディレクトリを取得
+directory = os.path.dirname(file_path)
+
+# 同じディレクトリ内のすべてのExcelファイルを検索
+all_files = [
+    os.path.join(directory, f) for f in os.listdir(directory)
+    if f.endswith(".xlsx") or f.endswith(".xlsm")
+]
+
+# 選択されたファイル名を表示
+#print(f"選択されたファイル: {file_path}")
+
+# 処理対象のファイルを表示
+print("処理対象のファイル:")
+for f in all_files:
+    print(f"  - {f}")
+
+# 全ファイルのデータを計算
+total_time_zone_totals = defaultdict(float)
+total_loss_zone_totals = defaultdict(float)
+for file in all_files:
+    #print(f"ファイルを処理中: {file}")
+    time_zone_totals, loss_zone_totals = calculate_time_data(file)
+    for zone, total in time_zone_totals.items():
+        total_time_zone_totals[zone] += total
+    for zone, loss in loss_zone_totals.items():
+        total_loss_zone_totals[zone] += loss
+
+# 各タイムゾーンの集計を表示
+print("\nタイムゾーンごとの集計:")
+total_cost = 0
+rates = {"デイタイム": 34.06, "ホームタイム": 26.00, "ナイトタイム": 16.11}
+
+total_renewable_energy_cost = 0
+total_fuel_adjustment_cost = 0
+
+for zone, total in total_time_zone_totals.items():
+    cost = total * rates[zone]
+    renewable_energy_cost = total * 3.49  # 再エネ賦課金単価
+    fuel_adjustment_cost = total * 0.06  # 燃料費調整単価
+
+    total_cost += cost
+    total_renewable_energy_cost += renewable_energy_cost
+    total_fuel_adjustment_cost += fuel_adjustment_cost
+
+    # 計算結果のみを表示
+    print(f"{zone}: {total:.2f} kWh, 金額: {cost:.2f} 円, "
+          f"再エネ賦課金: {renewable_energy_cost:.2f} 円, 燃料費調整額: {fuel_adjustment_cost:.2f} 円")
+
+# 損失電力の集計を表示
+print("\n損失電力の集計:")
+total_loss_cost = 0
+total_loss_renewable_cost = 0
+total_loss_fuel_adjustment_cost = 0
+
+for zone, loss in total_loss_zone_totals.items():
+    loss_cost = loss * rates[zone]
+    loss_renewable_cost = loss * 3.49  # 損失電力分の再エネ賦課金
+    loss_fuel_adjustment_cost = loss * 0.06  # 損失電力分の燃料費調整額
+
+    total_loss_cost += loss_cost
+    total_loss_renewable_cost += loss_renewable_cost
+    total_loss_fuel_adjustment_cost += loss_fuel_adjustment_cost
+
+    # 計算結果のみを表示
+    print(f"{zone}: {loss:.2f} kWh, 損失金額: {loss_cost:.2f} 円, "
+          f"再エネ賦課金: {loss_renewable_cost:.2f} 円, 燃料費調整額: {loss_fuel_adjustment_cost:.2f} 円")
+
+# 再エネ賦課金単価と燃料費調整単価を計算
+total_energy = sum(total_time_zone_totals.values())
+
+print(f"\n再エネ賦課金: {total_renewable_energy_cost:.2f} 円")
+print(f"燃料費調整額: {total_fuel_adjustment_cost:.2f} 円")
+
+# 合計金額を表示
+total_cost += total_renewable_energy_cost + total_fuel_adjustment_cost
+print(f"\n太陽光発電による節約金額: {total_cost:.2f} 円")
+
+# 損失を含む合計金額を計算
+total_loss_adjustment = total_loss_cost + total_loss_renewable_cost + total_loss_fuel_adjustment_cost
+adjusted_total_cost = total_cost - total_loss_adjustment
+print(f"損失電力を含む経済効果: {adjusted_total_cost:.2f} 円")
