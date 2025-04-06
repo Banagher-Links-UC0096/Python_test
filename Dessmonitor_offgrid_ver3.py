@@ -139,9 +139,61 @@ print("処理対象のファイル:")
 for f in all_files:
     print(f"  - {f}")
 
+# 燃料費調整単価と再エネ賦課金単価を設定
+fuel_adjustment_rates = {
+    "2023-04": 2.93, 
+    "2023-05": 1.95,
+    "2023-06": 0.60,
+    "2023-07":-0.94,
+    "2023-08":-2.57,
+    "2023-09":-3.74,
+    "2023-10":-0.73,
+    "2023-11":-0.96,
+    "2023-12":-1.10,
+    "2024-01":-1.01,
+    "2024-02":-0.82,
+    "2024-03":-0.31,
+    "2024-04":-0.10,
+    "2024-05": 0.04,
+    "2024-06": 1.51,
+    "2024-07": 2.84,
+    "2024-08": 2.54,
+    "2024-09":-1.55,
+    "2024-10":-1.25,
+    "2024-11": 0.30,
+    "2024-12": 2.59,
+    "2025-01": 2.33,
+    "2025-02":-0.15,
+    "2025-03": 0.06,
+    "2025-04": 1.64,
+    "2025-05": 2.84,  # 例: 5月以降の単価
+    # 必要に応じて追加
+}
+
+renewable_energy_rates = {
+    "2022": 3.45,  # 例: 2022年度の単価
+    "2023": 1.40,  # 例: 2023年度の単価
+    "2024": 3.49,  # 例: 2024年度の単価
+    "2025": 3.98,  # 例: 2025年度の単価
+    # 必要に応じて追加
+}
+
+# 単価を取得する関数
+def get_fuel_adjustment_rate(year_month):
+    return fuel_adjustment_rates.get(year_month, 0.0)  # デフォルト値は0.0
+
+# 再エネ賦課金単価を取得する関数
+def get_renewable_energy_rate(year, month):
+    # 1～4月は前年の単価を適用
+    if month in [1, 2, 3, 4]:
+        previous_year = str(int(year) - 1)
+        return renewable_energy_rates.get(previous_year, 0.0)
+    # 5月以降は当年の単価を適用
+    return renewable_energy_rates.get(year, 0.0)
+
 # 全ファイルのデータを計算
-total_time_zone_totals = defaultdict(float)
-total_loss_zone_totals = defaultdict(float)
+total_time_zone_totals = defaultdict(float)  # タイムゾーンごとの合計を保持
+total_loss_zone_totals = defaultdict(float)  # 損失電力の合計を保持
 
 # データ期間を記録するための変数
 all_dates = []
@@ -185,19 +237,29 @@ if all_dates:
 else:
     print("\nデータ期間: データがありません")
 
+# 適用単価を表示
+year_month = start_date.strftime("%Y-%m")  # データ期間の開始年月
+year = start_date.strftime("%Y")  # データ期間の開始年
+month = start_date.month  # データ期間の開始月
+fuel_adjustment_cost_per_kwh = get_fuel_adjustment_rate(year_month)
+renewable_energy_cost_per_kwh = get_renewable_energy_rate(year, month)
+
+print("\n適用単価:")
+print(f"燃料費調整単価 ({year_month}): {fuel_adjustment_cost_per_kwh:.2f} 円/kWh")
+print(f"再エネ賦課金単価 ({year}): {renewable_energy_cost_per_kwh:.2f} 円/kWh")
+
 # 各タイムゾーンの集計を表示
 print("\nタイムゾーンごとの集計:")
 total_cost = 0
 rates = {"デイタイム": 34.06, "ホームタイム": 26.00, "ナイトタイム": 16.11}
-saiene_cost = 3.49  # 再エネ賦課金単価
-nenryou_cost = 0.06  # 燃料費調整単価
 total_renewable_energy_cost = 0
 total_fuel_adjustment_cost = 0
 
 for zone, total in total_time_zone_totals.items():
+    # 各単価を適用して計算
     cost = total * rates[zone]
-    renewable_energy_cost = total * saiene_cost  # 再エネ賦課金単価
-    fuel_adjustment_cost = total * nenryou_cost  # 燃料費調整単価
+    renewable_energy_cost = total * renewable_energy_cost_per_kwh
+    fuel_adjustment_cost = total * fuel_adjustment_cost_per_kwh
 
     total_cost += cost
     total_renewable_energy_cost += renewable_energy_cost
@@ -214,9 +276,10 @@ total_loss_renewable_cost = 0
 total_loss_fuel_adjustment_cost = 0
 
 for zone, loss in total_loss_zone_totals.items():
+    # 各単価を適用して計算
     loss_cost = loss * rates[zone]
-    loss_renewable_cost = loss * saiene_cost  # 損失電力分の再エネ賦課金
-    loss_fuel_adjustment_cost = loss * nenryou_cost  # 損失電力分の燃料費調整額
+    loss_renewable_cost = loss * renewable_energy_cost_per_kwh
+    loss_fuel_adjustment_cost = loss * fuel_adjustment_cost_per_kwh
 
     total_loss_cost += loss_cost
     total_loss_renewable_cost += loss_renewable_cost
@@ -234,7 +297,7 @@ print(f"燃料費調整額: {total_fuel_adjustment_cost:.2f} 円")
 
 # 合計金額を表示
 total_cost += total_renewable_energy_cost + total_fuel_adjustment_cost
-print(f"\n太陽光発電による節約金額: {total_cost:.2f} 円")
+print(f"\n太陽光発電・蓄電池による節約金額: {total_cost:.2f} 円")
 
 # 損失を含む合計金額を計算
 total_loss_adjustment = total_loss_cost + total_loss_renewable_cost + total_loss_fuel_adjustment_cost
