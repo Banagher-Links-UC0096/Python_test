@@ -205,6 +205,7 @@ for file in all_files:
     # データ期間を取得（1列目の日付データから算出）
     wb = openpyxl.load_workbook(file)
     sheet = wb.active
+    file_dates = []  # ファイルごとの日付を記録
     for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row):  # ヘッダーをスキップ
         date_cell = row[0].value
 
@@ -221,7 +222,26 @@ for file in all_files:
 
         # 日付データが datetime 型の場合のみ処理
         if isinstance(date_cell, datetime):
+            file_dates.append(date_cell.date())
             all_dates.append(date_cell.date())
+
+    # ファイルごとのデータ期間を取得
+    if file_dates:
+        file_start_date = min(file_dates)
+        file_end_date = max(file_dates)
+        #print(f"\nファイル: {file}")
+        #print(f"データ期間: {file_start_date} ～ {file_end_date}")
+
+        # 適用単価を取得
+        year_month = file_start_date.strftime("%Y-%m")  # ファイルの開始年月
+        year = file_start_date.strftime("%Y")  # ファイルの開始年
+        month = file_start_date.month  # ファイルの開始月
+        fuel_adjustment_cost_per_kwh = get_fuel_adjustment_rate(year_month)
+        renewable_energy_cost_per_kwh = get_renewable_energy_rate(year, month)
+
+        #print("\n適用単価:")
+        #print(f"燃料費調整単価 ({year_month}): {fuel_adjustment_cost_per_kwh:.2f} 円/kWh")
+        #print(f"再エネ賦課金単価 ({year}): {renewable_energy_cost_per_kwh:.2f} 円/kWh")
 
     # 各タイムゾーンのデータを集計
     for zone, total in time_zone_totals.items():
@@ -229,24 +249,34 @@ for file in all_files:
     for zone, loss in loss_zone_totals.items():
         total_loss_zone_totals[zone] += loss
 
-# データ期間を表示
+# 全体のデータ期間を表示
 if all_dates:
     start_date = min(all_dates)  # 最小の日付
     end_date = max(all_dates)    # 最大の日付
-    print(f"\nデータ期間: {start_date} ～ {end_date}")
+    print(f"\n全体のデータ期間: {start_date} ～ {end_date}")
+
+    # データ期間に基づいて適用した単価を表示
+    start_year_month = start_date.strftime("%Y-%m")
+    end_year_month = end_date.strftime("%Y-%m")
+    start_year = start_date.year
+    end_year = end_date.year
+
+    print("\n適用した燃料費調整単価:")
+    for year_month, rate in fuel_adjustment_rates.items():
+        if start_year_month <= year_month <= end_year_month:
+            print(f"{year_month}: {rate:.2f} 円/kWh")
+
+    print("\n適用した再エネ賦課金単価:")
+    for year, rate in renewable_energy_rates.items():
+        if start_year <= int(year) <= end_year:
+            print(f"{year}: {rate:.2f} 円/kWh")
 else:
     print("\nデータ期間: データがありません")
 
-# 適用単価を表示
-year_month = start_date.strftime("%Y-%m")  # データ期間の開始年月
-year = start_date.strftime("%Y")  # データ期間の開始年
-month = start_date.month  # データ期間の開始月
-fuel_adjustment_cost_per_kwh = get_fuel_adjustment_rate(year_month)
-renewable_energy_cost_per_kwh = get_renewable_energy_rate(year, month)
-
-print("\n適用単価:")
-print(f"燃料費調整単価 ({year_month}): {fuel_adjustment_cost_per_kwh:.2f} 円/kWh")
-print(f"再エネ賦課金単価 ({year}): {renewable_energy_cost_per_kwh:.2f} 円/kWh")
+# 適用した燃料費調整単価と再エネ賦課金単価を表示
+#print("\n適用した単価:")
+#print(f"燃料費調整単価: {fuel_adjustment_cost_per_kwh:.2f} 円/kWh")
+#print(f"再エネ賦課金単価: {renewable_energy_cost_per_kwh:.2f} 円/kWh")
 
 # 各タイムゾーンの集計を表示
 print("\nタイムゾーンごとの集計:")
@@ -297,7 +327,7 @@ print(f"燃料費調整額: {total_fuel_adjustment_cost:.2f} 円")
 
 # 合計金額を表示
 total_cost += total_renewable_energy_cost + total_fuel_adjustment_cost
-print(f"\n太陽光発電・蓄電池による節約金額: {total_cost:.2f} 円")
+print(f"\n太陽光発電による節約金額: {total_cost:.2f} 円")
 
 # 損失を含む合計金額を計算
 total_loss_adjustment = total_loss_cost + total_loss_renewable_cost + total_loss_fuel_adjustment_cost
