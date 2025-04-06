@@ -154,14 +154,15 @@ for file in all_files:
 print("\nタイムゾーンごとの集計:")
 total_cost = 0
 rates = {"デイタイム": 34.06, "ホームタイム": 26.00, "ナイトタイム": 16.11}
-
+saiene_cost = 3.49  # 再エネ賦課金単価
+nenryou_cost = 0.06  # 燃料費調整単価
 total_renewable_energy_cost = 0
 total_fuel_adjustment_cost = 0
 
 for zone, total in total_time_zone_totals.items():
     cost = total * rates[zone]
-    renewable_energy_cost = total * 3.49  # 再エネ賦課金単価
-    fuel_adjustment_cost = total * 0.06  # 燃料費調整単価
+    renewable_energy_cost = total * saiene_cost  # 再エネ賦課金単価
+    fuel_adjustment_cost = total * nenryou_cost  # 燃料費調整単価
 
     total_cost += cost
     total_renewable_energy_cost += renewable_energy_cost
@@ -179,8 +180,8 @@ total_loss_fuel_adjustment_cost = 0
 
 for zone, loss in total_loss_zone_totals.items():
     loss_cost = loss * rates[zone]
-    loss_renewable_cost = loss * 3.49  # 損失電力分の再エネ賦課金
-    loss_fuel_adjustment_cost = loss * 0.06  # 損失電力分の燃料費調整額
+    loss_renewable_cost = loss * saiene_cost  # 損失電力分の再エネ賦課金
+    loss_fuel_adjustment_cost = loss * nenryou_cost  # 損失電力分の燃料費調整額
 
     total_loss_cost += loss_cost
     total_loss_renewable_cost += loss_renewable_cost
