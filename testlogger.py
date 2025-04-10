@@ -2,23 +2,100 @@ import serial
 import csv
 import time
 import struct
+import tkinter as tk
+from tkinter import ttk
+import serial.tools.list_ports
+
+def select_com_ports():
+    """
+    使用可能なCOMポートを選択するウィンドウを表示し、Logger_portとInverter_portを選択する。
+    """
+    ports = [port.device for port in serial.tools.list_ports.comports()]
+    if not ports:
+        print("No COM ports available.")
+        return None, None
+
+    selected_ports = {"Logger_port": None, "Inverter_port": None}
+
+    def update_com_options(*args):
+        """
+        Logger_portとInverter_portの選択肢を動的に更新する。
+        """
+        selected_logger = logger_var.get()
+        selected_inverter = inverter_var.get()
+
+        # Logger_portの選択肢を更新（Inverter_portで選択されているポートを除外）
+        logger_dropdown['values'] = [port for port in ports if port != selected_inverter]
+
+        # Inverter_portの選択肢を更新（Logger_portで選択されているポートを除外）
+        inverter_dropdown['values'] = ["なし"] + [port for port in ports if port != selected_logger]
+
+    def on_submit():
+        """
+        ポート選択を確定してウィンドウを閉じる。
+        """
+        selected_ports["Logger_port"] = logger_var.get()
+        selected_ports["Inverter_port"] = inverter_var.get()
+        root.destroy()
+
+    root = tk.Tk()
+    root.title("USB Port Selection")
+
+    # Logger_portの選択
+    tk.Label(root, text="Logger Port:", anchor="w").grid(row=0, column=0, padx=10, pady=5)
+    logger_var = tk.StringVar(value=ports[0] if ports else "")
+    logger_var.trace("w", update_com_options)  # Logger_portの選択変更時にリストを更新
+    logger_dropdown = ttk.Combobox(root, textvariable=logger_var, values=ports, state="readonly")
+    logger_dropdown.grid(row=0, column=1, padx=10, pady=5)
+
+    # Inverter_portの選択
+    tk.Label(root, text="Inverter Port:", anchor="w").grid(row=1, column=0, padx=10, pady=5)
+    inverter_var = tk.StringVar(value="なし")
+    inverter_var.trace("w", update_com_options)  # Inverter_portの選択変更時にリストを更新
+    inverter_dropdown = ttk.Combobox(root, textvariable=inverter_var, values=["なし"] + ports, state="readonly")
+    inverter_dropdown.grid(row=1, column=1, padx=10, pady=5)
+
+    # 選択されたポートを表示
+    tk.Label(root, text="Selected Logger Port:").grid(row=2, column=0, padx=10, pady=5)
+    selected_logger_label = tk.Label(root, textvariable=logger_var, anchor="w")
+    selected_logger_label.grid(row=2, column=1, padx=10, pady=5)
+
+    tk.Label(root, text="Selected Inverter Port:").grid(row=3, column=0, padx=10, pady=5)
+    selected_inverter_label = tk.Label(root, textvariable=inverter_var, anchor="w")
+    selected_inverter_label.grid(row=3, column=1, padx=10, pady=5)
+
+    # 設定ボタン
+    submit_button = tk.Button(root, text="設定", command=on_submit)
+    submit_button.grid(row=4, column=0, columnspan=2, pady=10)
+
+    root.mainloop()
+
+    # Inverter_portが"なし"の場合はNoneを返す
+    return selected_ports["Logger_port"], None if selected_ports["Inverter_port"] == "なし" else selected_ports["Inverter_port"]
 
 # COMポートの設定
-COM5_PORT = 'COM5'
-COM6_PORT = 'COM6'
+LOGGER_PORT, INVERTER_PORT = select_com_ports()
+if not LOGGER_PORT:
+    print("Logger port selection canceled.")
+    exit()
+
 BAUD_RATE = 9600  # ボーレートは必要に応じて変更
 
 # CSVファイルの設定
 LOG_FILE = 'serial_log.csv'
 
 # シリアルポートの初期化
-ser_com5 = serial.Serial(COM5_PORT, BAUD_RATE, timeout=1)
+ser_logger = serial.Serial(LOGGER_PORT, BAUD_RATE, timeout=1)
 try:
-    ser_com6 = serial.Serial(COM6_PORT, BAUD_RATE, timeout=1)
-    com6_connected = True
+    if INVERTER_PORT:
+        ser_inverter = serial.Serial(INVERTER_PORT, BAUD_RATE, timeout=1)
+        inverter_connected = True
+    else:
+        print("Inverter is not connected. Using dummy data.")
+        inverter_connected = False
 except serial.SerialException:
-    print("COM6 is not connected. Using dummy data.")
-    com6_connected = False
+    print("Inverter is not connected. Using dummy data.")
+    inverter_connected = False
 
 # アドレスとデータフレームのリスト
 modbus_data = {
@@ -101,50 +178,50 @@ def generate_modbus_response(request_frame):
         return b''
 
 try:
-    print("Listening on COM5 and COM6...")
+    print("Listening on Logger and Inverter...")
     while True:
-        # COM5からデータを受信
-        if ser_com5.in_waiting > 0:
-            data_from_com5 = ser_com5.read(ser_com5.in_waiting)
-            print(f"Received from COM5: {data_from_com5.hex()}")
+        # Loggerからデータを受信
+        if ser_logger.in_waiting > 0:
+            data_from_logger = ser_logger.read(ser_logger.in_waiting)
+            print(f"Received from Logger: {data_from_logger.hex()}")
 
             # レジスタアドレスを抽出して16進数で表示
-            if len(data_from_com5) >= 4:  # レジスタアドレスを抽出するには最低4バイト必要
-                register_address = int.from_bytes(data_from_com5[2:4], byteorder='big')
+            if len(data_from_logger) >= 4:  # レジスタアドレスを抽出するには最低4バイト必要
+                register_address = int.from_bytes(data_from_logger[2:4], byteorder='big')
                 print(f"Extracted Register Address: 0x{register_address:04X}")
 
             # データをCSVにログ
             with open(LOG_FILE, mode='a', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), 'COM5->COM6', data_from_com5.hex()])
+                writer.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), 'Logger->Inverter', data_from_logger.hex()])
 
-            # COM6へ送信またはModbusレスポンスを返す
-            if com6_connected:
-                ser_com6.write(data_from_com5)
+            # Inverterへ送信またはModbusレスポンスを返す
+            if inverter_connected:
+                ser_inverter.write(data_from_logger)
             else:
-                # Modbusレスポンスを生成してCOM5に返す
-                modbus_response = generate_modbus_response(data_from_com5)
+                # Modbusレスポンスを生成してLoggerに返す
+                modbus_response = generate_modbus_response(data_from_logger)
                 if modbus_response:
-                    print(f"Sending Modbus response to COM5: {modbus_response.hex()}")
-                    ser_com5.write(modbus_response)
+                    print(f"Sending Modbus response to Logger: {modbus_response.hex()}")
+                    ser_logger.write(modbus_response)
 
-        # COM6からデータを受信
-        if com6_connected and ser_com6.in_waiting > 0:
-            data_from_com6 = ser_com6.read(ser_com6.in_waiting)
-            print(f"Received from COM6: {data_from_com6.hex()}")
+        # Inverterからデータを受信
+        if inverter_connected and ser_inverter.in_waiting > 0:
+            data_from_inverter = ser_inverter.read(ser_inverter.in_waiting)
+            print(f"Received from Inverter: {data_from_inverter.hex()}")
 
             # データをCSVにログ
             with open(LOG_FILE, mode='a', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), 'COM6->COM5', data_from_com6.hex()])
+                writer.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), 'Inverter->Logger', data_from_inverter.hex()])
 
-            # COM5へ送信
-            ser_com5.write(data_from_com6)
+            # Loggerへ送信
+            ser_logger.write(data_from_inverter)
 
 except KeyboardInterrupt:
     print("Terminating...")
 finally:
     # シリアルポートを閉じる
-    ser_com5.close()
-    if com6_connected:
-        ser_com6.close()
+    ser_logger.close()
+    if inverter_connected:
+        ser_inverter.close()
