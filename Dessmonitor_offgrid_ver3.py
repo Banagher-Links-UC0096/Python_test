@@ -5,19 +5,18 @@ from collections import defaultdict
 import os
 import jpholiday  # 日本の祝日判定ライブラリ
 
-# ファイル選択ダイアログを表示
-def select_file():
+# フォルダー選択ダイアログを表示
+def select_folder():
     root = Tk()
-    root.withdraw()  # Tkinterウインドウを非表示にする
-    file_path = filedialog.askopenfilename(
-        title="Excelファイルを選択してください",
-        filetypes=[("Excelファイル", "*.xlsx *.xlsm")]
+    root.withdraw()  # Tkinterウィンドウを非表示にする
+    folder_path = filedialog.askdirectory(
+        title="フォルダーを選択してください"
     )
-    if not file_path:
-        print("ファイルが選択されませんでした。")
+    if not folder_path:
+        print("フォルダーが選択されませんでした。")
         exit()
-    print(f"選択されたファイル: {file_path}")
-    return file_path
+    print(f"選択されたフォルダー: {folder_path}")
+    return folder_path
 
 # 時間帯ごとのデータを計算する関数
 def calculate_time_data(file_path):
@@ -120,19 +119,14 @@ def calculate_time_data(file_path):
     return time_zone_totals, loss_zone_totals
 
 # メイン処理
-file_path = select_file()
+folder_path = select_folder()
 
-# 選択したファイルのディレクトリを取得
-directory = os.path.dirname(file_path)
-
-# 同じディレクトリ内のすべてのExcelファイルを検索
-all_files = [
-    os.path.join(directory, f) for f in os.listdir(directory)
-    if f.endswith(".xlsx") or f.endswith(".xlsm")
-]
-
-# 選択されたファイル名を表示
-#print(f"選択されたファイル: {file_path}")
+# 選択したフォルダー内のすべてのExcelファイルを検索
+all_files = []
+for root, _, files in os.walk(folder_path):  # フォルダー内を再帰的に探索
+    for file in files:
+        if file.endswith(".xlsx") or file.endswith(".xlsm"):
+            all_files.append(os.path.join(root, file))
 
 # 処理対象のファイルを表示
 print("処理対象のファイル:")
