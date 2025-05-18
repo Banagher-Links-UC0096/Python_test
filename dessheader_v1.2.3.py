@@ -13,35 +13,38 @@ import threading
 modbus_data = {
     0x000b:[1, 1,'Product type',0,["Controller","Controller","Inverter","Integrated inverter controller","Main friequency off-grid"]],
     
-    0x0100:[1, 5,'Battery level SOC(%)',1],
-    0x0101:[1, 3,'Battery voltage(V)',10],
-    0x0102:[1, 4,'Battery current(A)',10],
+    0x0100:[1, 5,'Battery level SOC(%)',1,"%"],
+    0x0101:[1, 3,'Battery voltage(V)',10,"V"],
+    0x0102:[1, 4,'Battery current(A)',10,"A"],
 
-    0x0107:[1,12,'PV voltage(V)',10],
-    0x0108:[1,13,'PV charging current(A)',10],
-    0x0109:[1,14,'PV charging power(W)',1],0x010a:[1,0],0x010b:[1,0],0x010c:[1,0],0x010d:[1,0],
-    0x010e:[1,16,'Charging power(W)',1],0x010f:[1,0],
+    0x0107:[1,12,'PV voltage(V)',10,"V"],
+    0x0108:[1,13,'PV charging current(A)',10,"A"],
+    0x0109:[1,14,'PV charging power(W)',1,"W"],0x010a:[1,0],
+    0x010b:[1, 0,'Charge state',0,["Not start","Const Current","Const Voltage","-","Float","-","Active","Active"]],0x010c:[1,0],0x010d:[1,0],
+    0x010e:[1,16,'Charging power(W)',1,"W"],0x010f:[1,0],
 
     0x0204:[1,0],0x0205:[1,0],0x0206:[1,0],0x0207:[1,0],0x0208:[1,0],0x0209:[1,0],0x020a:[1,0],0x020b:[1,0],0x020c:[1,0],0x020d:[1,0],0x020e:[1,0],0x020f:[1,0],
     0x0210:[1, 2,'Current state of machine',0,
             ["Power-on","Stand by","Intialization","Soft start","Running in line","Running in invert","Invert to line","Line to invert","remain","remain","Shutdown","Fault"]],0x0211:[0],
 
-    0x0212:[1, 7,'Bus voltage(V)',10],
-    0x0213:[1, 8,'Mains voltage(V)',10],
-    0x0214:[1, 9,'Grid current(A)',10],
-    0x0215:[1,10,'Mains frequency(Hz)',100],
-    0x0216:[1,17,'Output voltage(V)',10],
+    0x0212:[1, 7,'Bus voltage(V)',10,"V"],
+    0x0213:[1, 8,'Mains voltage(V)',10,"V"],
+    0x0214:[1, 9,'Grid current(A)',10,"A"],
+    0x0215:[1,10,'Mains frequency(Hz)',100,"Hz"],
+    0x0216:[1,17,'Output voltage(V)',10,"V"],
     0x0217:[1,18,'InvCurr(A)',10],
-    0x0218:[1,19,'Output frequency(Hz)',100],
-    0x0219:[1,20,'Load current(A)',10],0x021a:[1,0],
-    0x021b:[1,21,'Load active power(W)',1],
-    0x021c:[1,22,'Apparent power of load(VA)',1],0x021d:[1,0],
-    0x021e:[1,11,'Mains charging current(A)',10],
-    0x021f:[1,23,'Load rate(%)',1],
-    0x0220:[1,24,'PV radiator temperature(°C)',10],
-    0x0221:[1,25,'Temperature of inverter heat sink(°C)',10],
-    0x0222:[1,26,'Inverter radiator temperature(°C)',10],0x0223:[1,0],
-    0x0224:[1,15,'PV charging current(A)',10],0x0225:[1,0],
+    0x0218:[1,19,'Output frequency(Hz)',100,"Hz"],
+    0x0219:[1,20,'Load current(A)',10,"A"],0x021a:[1,0],
+    0x021b:[1,21,'Load active power(W)',1,"W"],
+    0x021c:[1,22,'Apparent power of load(VA)',1,"VA"],0x021d:[1,0],
+    0x021e:[1,11,'Mains charging current(A)',10,"A"],
+    0x021f:[1,23,'Load rate(%)',1,"%"],
+    0x0220:[1,24,'PV radiator temperature(°C)',10,"°C"],
+    0x0221:[1,25,'Temperature of inverter heat sink(°C)',10,"°C"],
+    0x0222:[1,26,'Inverter radiator temperature(°C)',10,"°C"],
+    0x0223:[1, 0,'Ambient temperature(°C)',10,"°C"],
+    0x0224:[1,15,'PV charging current(A)',10,"A"],
+    0x0225:[1, 0,'Back current(A)',10,"A"],
     
     0xe004:[1, 6,'BatTypeSet',0,["User-defined","SLD","FLD","GEL","LFPx14","LFPx15","LFPx16","LFPx7","LFPx8","LFPx9","NCAx7","NCAx8","NCAx13","NCAx14"]],
 
@@ -54,20 +57,23 @@ modbus_data = {
     0xf01c:[1,0],0xf01d:[1,0],0xf01e:[1,0],0xf01f:[1,0],0xf020:[1,0],0xf021:[1,0],0xf022:[1,0],
     0xf023:[1,0],0xf024:[1,0],0xf025:[1,0],0xf026:[1,0],0xf027:[1,0],0xf028:[1,0],0xf029:[1,0],
 
-    0xf02d:[1,27,'Ampere-hours of battery charging on the same day(AH)',1],
-    0xf02e:[1,28,'Ampere-hours of battery discharge on the same day(AH)',1],
-    0xf02f:[1,29,'PV daily power generation(kWh)',10],
-    0xf030:[1,30,'Electricity consumption on the day of load(kWh)',10],0xf031:[1,0],
+    0xf02d:[1,27,'Ampere-hours of battery charging on the same day(AH)',1,"AH"],
+    0xf02e:[1,28,'Ampere-hours of battery discharge on the same day(AH)',1,"AH"],
+    0xf02f:[1,29,'PV daily power generation(kWh)',10,"kWh"],
+    0xf030:[1,30,'Electricity consumption on the day of load(kWh)',10,"kWh"],0xf031:[3,0],
 
-    0xf034:[2,32,'Accumulated battery charging ampere hours(AH)',1],
-    0xf036:[2,33,'Accumulated discharge ampere hours of battery(AH)',1],
-    0xf038:[2,35,'PV cumulative power generation(kWh)',10],
-    0xf03a:[2,36,'Accumulated power consumption of load(kWh)',10],0xf03c:[1,0],
-    0xf03d:[2,31,'Consumption of municipal electricity on the day of load(kWh)',10],
+    0xf034:[2,32,'Accumulated battery charging ampere hours(AH)',1,"AH"],
+    0xf036:[2,33,'Accumulated discharge ampere hours of battery(AH)',1,"AH"],
+    0xf038:[2,35,'PV cumulative power generation(kWh)',10,"kWh"],
+    0xf03a:[2,36,'Accumulated power consumption of load(kWh)',10,"kWh"],
+    0xf03c:[1, 0,'Mains charge level of the day(AH)',1,"AH"],
+    0xf03d:[2,31,'Consumption of municipal electricity on the day of load(kWh)',10,"kWh"],
 
     0xf040:[3,0],0xf043:[3,0],
-    0xf046:[1,34,'Accumulated charging capacity of municipal electricity(AH)',10],
-    0xf048:[1,37,'Accumulated load from mains consumption(kWh)',10],0xf04a:[1,0],0xf04b:[1,0],
+    0xf046:[1,34,'Accumulated charging capacity of municipal electricity(AH)',10,"AH"],
+    0xf048:[1,37,'Accumulated load from mains consumption(kWh)',10,"kWh"],
+    0xf04a:[1, 0,'Accumulated working hoursof inverter(H)',1,"H"],
+    0xf04b:[1, 0,'Aooumulated working hoursof bypass(H)',1,"H"],
     }
 
 # --- ここでグローバルに定義 ---
@@ -82,7 +88,7 @@ modbus_addr_sorted = [
 # --- ポートの選択と初期化 ---
 def select_com_ports():
     """
-    使用可能なCOMポートを選択するウィンドウを画面中央に表示し、Logger1のデフォルトをCOM7、Inverter1のデフォルトをCOM9にする。
+    使用可能なCOMポートを選択するウィンドウを画面中央に表示し、Logger1のデフォルトをCOM10、Inverter1のデフォルトをCOM13にする。
     """
     ports = [port.device for port in serial.tools.list_ports.comports()]
     if not ports:
@@ -121,7 +127,7 @@ def select_com_ports():
 
     # Logger_portの選択
     tk.Label(root, text="Logger1 Port:", anchor="w").grid(row=0, column=0, padx=10, pady=5)
-    logger1_default = "COM7" if "COM7" in ports else (ports[0] if ports else "なし")
+    logger1_default = "COM10" if "COM10" in ports else (ports[0] if ports else "なし")
     logger1_var = tk.StringVar(value=logger1_default)
     logger1_var.trace("w", update_com_options)
     logger1_dropdown = ttk.Combobox(root, textvariable=logger1_var, values=ports, state="readonly")
@@ -135,7 +141,7 @@ def select_com_ports():
 
     # Inverter_portの選択
     tk.Label(root, text="Inverter1 Port:", anchor="w").grid(row=2, column=0, padx=10, pady=5)
-    inverter1_default = "COM9" if "COM9" in ports else "なし"
+    inverter1_default = "COM13" if "COM13" in ports else "なし"
     inverter1_var = tk.StringVar(value=inverter1_default)
     inverter1_var.trace("w", update_com_options)
     inverter1_dropdown = ttk.Combobox(root, textvariable=inverter1_var, values=["なし"] + ports, state="readonly")
@@ -169,11 +175,15 @@ else:
     exit()
 
 BAUD_RATE = 9600  # ボーレートは必要に応じて変更
+BYTE_SIZE = 8  # データビット数
+PARITY = "N"  # パリティビット
+STOP_BITS = 1  # ストップビット数
+TIMEOUT = 1  # タイムアウト時間（秒）
 
 # シリアルポートの初期化（インスタンスを分離）
 try:
-    ser_logger1 = serial.Serial(LOGGER_PORT1, BAUD_RATE, timeout=1) if LOGGER_PORT1 else None
-    ser_inverter1 = serial.Serial(INVERTER_PORT1, BAUD_RATE, timeout=1) if INVERTER_PORT1 else None
+    ser_logger1 = serial.Serial(LOGGER_PORT1, BAUD_RATE, BYTE_SIZE, PARITY, STOP_BITS, TIMEOUT) if LOGGER_PORT1 else None
+    ser_inverter1 = serial.Serial(INVERTER_PORT1, BAUD_RATE, BYTE_SIZE, PARITY, STOP_BITS, TIMEOUT) if INVERTER_PORT1 else None
     inverter1_connected = ser_inverter1 is not None
 
     ser_logger2 = serial.Serial(LOGGER_PORT2, BAUD_RATE, timeout=1) if LOGGER_PORT2 else None
@@ -219,18 +229,10 @@ def extract_modbus_register_value(data):
     """
     Modbusフレームからレジスターデータを抽出し、
     modbus_dataのリスト1番目が1の場合は2バイト、2の場合は4バイト、3の場合は6バイトで1つの値として処理しリスト化する。
-    さらに、modbus_dataの4番目が0かつ5番目がリストの場合は、そのリストから該当する文字列に変換する。
     CRCエラーの場合はデータを無効とする。
     """
     if len(data) >= 7:  # レスポンスフレームの最低長
-        # CRCチェック
-        crc_received = int.from_bytes(data[-2:], byteorder='little')
-        crc_calc = calc_crc16(data[:-2])
-        if crc_received != crc_calc:
-            print("CRCエラー: データ無効")
-            return []
         data_bytes = data[3:-2]  # データ数バイト以降がデータ部
-        data_byte_count = data[2]  # データバイト数
         base_addr = int.from_bytes(data[2:4], byteorder='big') if len(data) >= 4 else 0
         data_list = []
         idx = 0
@@ -241,22 +243,36 @@ def extract_modbus_register_value(data):
                 word_count = modbus_data[addr][0]
             if word_count == 3 and idx + 6 <= len(data_bytes):
                 value = (
-                    (int.from_bytes(data_bytes[idx:idx+2], byteorder='big') << 32) |
-                    (int.from_bytes(data_bytes[idx+2:idx+4], byteorder='big') << 16) |
-                    int.from_bytes(data_bytes[idx+4:idx+6], byteorder='big')
+                    (int.from_bytes(data_bytes[idx:idx+2], byteorder='big', signed=False) << 32) |
+                    (int.from_bytes(data_bytes[idx+2:idx+4], byteorder='big', signed=False) << 16) |
+                    int.from_bytes(data_bytes[idx+4:idx+6], byteorder='big', signed=False)
                 )
                 idx += 6
             elif word_count == 2 and idx + 4 <= len(data_bytes):
                 value = (
-                    (int.from_bytes(data_bytes[idx:idx+2], byteorder='big') << 16) |
-                    int.from_bytes(data_bytes[idx+2:idx+4], byteorder='big')
+                    (int.from_bytes(data_bytes[idx:idx+2], byteorder='big', signed=False) << 16) |
+                    int.from_bytes(data_bytes[idx+2:idx+4], byteorder='big', signed=False)
                 )
                 idx += 4
             elif word_count == 1 and idx + 2 <= len(data_bytes):
-                value = int.from_bytes(data_bytes[idx:idx+2], byteorder='big')
+                scale = 1
+                signed_flag = False
+                if addr in modbus_data and len(modbus_data[addr]) > 3:
+                    scale = modbus_data[addr][3]
+                    # 4番目が負ならsignedで変換し、絶対値で割る
+                    #if isinstance(scale, (int, float)) and scale < 0:
+                    #    signed_flag = True
+                    #    scale = abs(scale)
+                if signed_flag:
+                    # 2バイト値をsignedで取得
+                    value = int.from_bytes(data_bytes[idx:idx+2], byteorder='big', signed=True)
+                    value = value / scale
+                else:
+                    value = int.from_bytes(data_bytes[idx:idx+2], byteorder='big', signed=False)
+                    if isinstance(scale, (int, float)) and scale > 1:
+                        value = value / scale
                 idx += 2
             else:
-                # データ不足時はbreak
                 break
             # 文字列変換
             if addr in modbus_data:
@@ -264,12 +280,11 @@ def extract_modbus_register_value(data):
                 if len(v) > 4 and v[3] == 0 and isinstance(v[4], list):
                     try:
                         if 0 <= value < len(v[4]):
-                            value = v[4][value]
+                            value = v[4][int(value)]
                     except Exception:
                         pass
             data_list.append(value)
             addr += 1
-        #print(f"抽出したレジスターデータリスト: {data_list}")
         return data_list
     return []
 
@@ -315,10 +330,33 @@ def process_and_save_data(timestamp, address_list, value_list, file_name):
     4番目のデータと29番目、28番目、33番目、34番目のデータの積算も追加して保存
     積算値は小数点第1位で四捨五入
     """
+    # --- 0x0102のデータが""の場合は何もしない ---
+    if 0x0102 in address_list:
+        idx_0102 = address_list.index(0x0102)
+        val_0102 = value_list[idx_0102]
+        if val_0102 != "":
+            v = modbus_data.get(0x0102)
+            if v and len(v) > 3:
+                scale = v[3]
+                if isinstance(val_0102, (int, float)) and val_0102 >= 32768 and isinstance(scale, (int, float)) and scale != 0:
+                    val_signed = int(val_0102) - 65536
+                    value_list[idx_0102] = val_signed #/ abs(scale)
+                elif isinstance(scale, (int, float)) and scale < 0:
+                    # scaleが負の場合はsigned変換
+                    val_int = int(val_0102)
+                    if val_int > 32767:
+                        val_signed = val_int - 65536
+                    else:
+                        val_signed = val_int
+                    value_list[idx_0102] = val_signed / abs(scale)
+                elif isinstance(scale, (int, float)) and scale > 1:
+                    value_list[idx_0102] = float(val_0102) #/ scale
+
     addr_val_dict = {addr: val for addr, val in zip(address_list, value_list)}
     row = [timestamp]
     for addr in modbus_addr_sorted:
         val = addr_val_dict.get(addr, "")
+        # --- 通常のデータタイプ判定 ---
         if val == "":
             row.append("")
             continue
@@ -347,6 +385,8 @@ def process_and_save_data(timestamp, address_list, value_list, file_name):
     # 積算値の追加（小数点第1位で四捨五入）
     def safe_float(x):
         try:
+            if x == "" or x is None:
+                return 0.0
             return float(x)
         except Exception:
             return 0.0
@@ -395,31 +435,50 @@ def handle_logger1_inverter1():
     """ Logger1とInverter1間のデータ送受信を高速に処理するスレッド """
     try:
         data_buffer = {}
+        inverter1_frame_buffer = b''  # 受信フレーム結合用バッファ
         while True:
             did_process = False
             if ser_logger1 and ser_inverter1:
                 if ser_logger1.in_waiting:
                     logger1_data = ser_logger1.read(ser_logger1.in_waiting)
+                    #print(f"[Logger1→Inverter1] 受信: {logger1_data.hex()}")
                     reg_address = extract_modbus_register_address(logger1_data)
                     ser_inverter1.write(logger1_data)
+                    #print(f"[Logger1→Inverter1] 送信: {logger1_data.hex()}")
                     did_process = True
 
                 if ser_inverter1.in_waiting:
                     inverter1_data = ser_inverter1.read(ser_inverter1.in_waiting)
-                    reg_value = extract_modbus_register_value(inverter1_data)
-                    reg_address = extract_modbus_register_address(logger1_data)
-                    if reg_value and reg_address:
-                        addr_ints = [int(a, 16) for a in reg_address]
-                        for addr, val in zip(addr_ints, reg_value):
-                            data_buffer[addr] = val
-                        if 0xf040 in addr_ints:
-                            write_addrs = [addr for addr in modbus_addr_sorted if 0x000b <= addr <= 0xf04b]
-                            row_values = [data_buffer.get(addr, "") for addr in write_addrs]
-                            file_name = f"test1-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
-                            # タイムスタンプをprocess_and_save_data_syncで揃える
-                            process_and_save_data_sync("logger1", write_addrs, row_values, file_name)
-                            data_buffer.clear()
+                    #print(f"[Inverter1→Logger1] 受信: {inverter1_data.hex()}")
+                    # 受信したら即Loggerへ送信
                     ser_logger1.write(inverter1_data)
+                    #print(f"[Inverter1→Logger1] 送信: {inverter1_data.hex()}")
+                    # フレームをバッファに追加
+                    inverter1_frame_buffer += inverter1_data
+                    # フレーム終端判定（例：CRC2バイトを含む長さで判定、またはプロトコル仕様に応じて調整）
+                    # ここでは「連続で2つ以上のフレームが来たら結合して処理」とする
+                    # 例: 1フレーム目受信後、2フレーム目受信時に結合して処理
+                    # CRC2バイトを含むフレーム長を判定する場合は下記のように調整
+                    # ここでは単純に2フレーム分たまったら処理
+                    if len(inverter1_frame_buffer) > 0:
+                        # 例: 2フレーム分たまったら処理（必要に応じて判定方法を調整）
+                        # ここでは100ms待って追加受信がなければ処理する簡易方式
+                        time.sleep(0.1)
+                        if not ser_inverter1.in_waiting:
+                            # ファイル書き込み処理は結合したフレームで
+                            reg_value = extract_modbus_register_value(inverter1_frame_buffer)
+                            reg_address = extract_modbus_register_address(logger1_data)
+                            if reg_value and reg_address:
+                                addr_ints = [int(a, 16) for a in reg_address]
+                                for addr, val in zip(addr_ints, reg_value):
+                                    data_buffer[addr] = val
+                                if 0xf040 in addr_ints:
+                                    write_addrs = [addr for addr in modbus_addr_sorted if 0x000b <= addr <= 0xf04b]
+                                    row_values = [data_buffer.get(addr, "") for addr in write_addrs]
+                                    file_name = f"test1-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+                                    process_and_save_data_sync("logger1", write_addrs, row_values, file_name)
+                                    data_buffer.clear()
+                            inverter1_frame_buffer = b''  # バッファクリア
                     did_process = True
 
             if not did_process:
@@ -427,36 +486,43 @@ def handle_logger1_inverter1():
     except Exception as e:
         print(f"Logger1-Inverter1スレッドでエラーが発生しました: {e}")
 
-# --- handle_logger2_inverter2 の該当部分を修正 ---
 def handle_logger2_inverter2():
     """ Logger2とInverter2間のデータ送受信を高速に処理するスレッド """
     try:
         data_buffer = {}
+        inverter2_frame_buffer = b''
         while True:
             did_process = False
             if ser_logger2 and ser_inverter2:
                 if ser_logger2.in_waiting:
                     logger2_data = ser_logger2.read(ser_logger2.in_waiting)
+                    print(f"[Logger2→Inverter2] 受信: {logger2_data.hex()}")
                     reg_address = extract_modbus_register_address(logger2_data)
                     ser_inverter2.write(logger2_data)
+                    print(f"[Logger2→Inverter2] 送信: {logger2_data.hex()}")
                     did_process = True
 
                 if ser_inverter2.in_waiting:
                     inverter2_data = ser_inverter2.read(ser_inverter2.in_waiting)
-                    reg_value = extract_modbus_register_value(inverter2_data)
-                    reg_address = extract_modbus_register_address(logger2_data)
-                    if reg_value and reg_address:
-                        addr_ints = [int(a, 16) for a in reg_address]
-                        for addr, val in zip(addr_ints, reg_value):
-                            data_buffer[addr] = val
-                        if 0xf040 in addr_ints:
-                            write_addrs = [addr for addr in modbus_addr_sorted if 0x000b <= addr <= 0xf04b]
-                            row_values = [data_buffer.get(addr, "") for addr in write_addrs]
-                            file_name = f"test2-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
-                            # タイムスタンプをprocess_and_save_data_syncで揃える
-                            process_and_save_data_sync("logger2", write_addrs, row_values, file_name)
-                            data_buffer.clear()
+                    print(f"[Inverter2→Logger2] 受信: {inverter2_data.hex()}")
                     ser_logger2.write(inverter2_data)
+                    print(f"[Inverter2→Logger2] 送信: {inverter2_data.hex()}")
+                    inverter2_frame_buffer += inverter2_data
+                    time.sleep(0.1)
+                    if not ser_inverter2.in_waiting:
+                        reg_value = extract_modbus_register_value(inverter2_frame_buffer)
+                        reg_address = extract_modbus_register_address(logger2_data)
+                        if reg_value and reg_address:
+                            addr_ints = [int(a, 16) for a in reg_address]
+                            for addr, val in zip(addr_ints, reg_value):
+                                data_buffer[addr] = val
+                            if 0xf040 in addr_ints:
+                                write_addrs = [addr for addr in modbus_addr_sorted if 0x000b <= addr <= 0xf04b]
+                                row_values = [data_buffer.get(addr, "") for addr in write_addrs]
+                                file_name = f"test2-{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+                                process_and_save_data_sync("logger2", write_addrs, row_values, file_name)
+                                data_buffer.clear()
+                        inverter2_frame_buffer = b''
                     did_process = True
 
             if not did_process:
