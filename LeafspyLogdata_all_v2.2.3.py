@@ -4,6 +4,7 @@ import pandas as pd
 
 import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib.gridspec as gridspec
 matplotlib.rcParams['font.family'] = 'MS Gothic'
 import glob
 import os
@@ -112,13 +113,15 @@ if folder_path:
         odo = df[123]  # ODO
         gids_a = (gids / 750) *100
         gids_c = ((gids * 0.08)  / (62.76384 * (soh/100)))*100 # Gidsx80
-        gids_b = gids_c/gids_a
+        gids_b = gids_c+(gids_c/50+0.2)  # SOCの補正
         gids_h = ((gids * 0.08) / (soc/100)  / 0.6276384)+2.2# Gids
+        power = (df[135] + df[136] + df[137] + df[138] + df[139] + df[140]) / 1000 # Power
         
         voltage = df[8]
         current = df[9]
         cell_max_voltage = df[10] / 1000  # セル最大電圧は1000で割る
         cell_min_voltage = df[11] / 1000  # セル最小電圧は1000で割る
+        Cell_deff = df[10] - df[11] # セル電圧差
         cell_temp1 = df[16]
         cell_temp2 = df[18]
         cell_temp3 = df[22]
@@ -126,61 +129,92 @@ if folder_path:
 
         ambient_temp = ambient_temp.combine(cell_temp1, lambda amb, cell: (amb - 32) * 5 / 9 if amb >= cell + 20 else amb)
 
-        # ---グラフ描画処理は既存のまま---
-        fig, axs = plt.subplots(2, 2, figsize=(16, 10))
-        fig.canvas.manager.set_window_title(file_path)  # ウインドウタイトルをファイル名に変更
+        # ---グラフ描画処理は修正後---
+        fig = plt.figure(figsize=(16, 10))
+        gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1])
 
-        # 左上: SOC, Hx, SOH
-        ax1 = axs[0, 0]
+        # 右側2つ
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax3 = fig.add_subplot(gs[1, 0])
+        #ax5 = fig.add_subplot(gs[2, 0])
+
+        # 左側（高さ2つ分）
+        ax2 = fig.add_subplot(gs[:, 1]) 
+
+        # 左上: SOC
         l_soc, = ax1.plot(x, soc, label='SOC', color="#244cff", linewidth=0.8, picker=True)
-        l_hx, = ax1.plot(x, hx, label='Hx', color="#ff5e00", linewidth=0.8, picker=True)
-        l_soh, = ax1.plot(x, soh, label='SOH', color="#ff0080", linewidth=0.8, picker=True)
+        l_soh, = ax1.plot(x, gids_b, label='Gids SOC', color="#ff0080", linewidth=0.8, picker=True)
         ax1.set_xlabel('日付')
-        ax1.set_ylabel('Hx / SOH / SOC (%)')
+        ax1.set_ylabel('SOC (%)')
         ax1.set_xticks(range(0, len(x), 800))
         ax1.set_xticklabels(x[::800], rotation=45)
         ax1.legend(loc='lower left', bbox_to_anchor=(0, 0), ncol=1)
-        ax1.set_title('SOC / Hx / SOH')
+        ax1.set_title('SOC')
         ax1.grid(axis='y')
 
-        # 左下: 各温度
-        ax2 = axs[1, 0]
+        # 左中: SOH
+        #l_gsoh, = ax5.plot(x, gids_h, color="#ff0080", label='Gids SOH', linewidth=0.5, picker=True)
+        #l_soh, = ax5.plot(x, soh, color="#244cff", label='SOH', linewidth=0.5, picker=True)
+        #ax5.set_xlabel('日付')
+        #ax5.set_ylabel('SOH(%)')
+        #ax5.set_xticks(range(0, len(x), 800))
+        #ax5.set_xticklabels(x[::800], rotation=45)
+        #ax5.legend(loc='lower left', bbox_to_anchor=(0, 0), ncol=1)
+        #ax5.set_title('SOH')
+        #ax5.grid(axis='y')
+
+        # 左下: 各温度,電圧差、出力/Hx,SOH
+        l_Celldeff, = ax2.plot(x, Cell_deff, color="#81f5fd", label='Cell Voltage deff', linewidth=0.2, picker=True)
+        l_power, = ax2.plot(x, power, color="#ffa1d0", label='Power', linewidth=0.2, picker=True)
+        l_ambient, = ax2.plot(x, ambient_temp, label='Ambient Temp', color="#fde888", linewidth=0.8, picker=True)
         l_temp1, = ax2.plot(x, cell_temp1, label='Cell Temp 1', color='#66bb6a', linewidth=0.5, picker=True)
         l_temp2, = ax2.plot(x, cell_temp2, label='Cell Temp 2', color='#388e3c', linewidth=0.5, picker=True)
         l_temp3, = ax2.plot(x, cell_temp3, label='Cell Temp 3', color='#1b5e20', linewidth=0.5, picker=True)
-        l_ambient, = ax2.plot(x, ambient_temp, label='Ambient Temp', color="#eb87ff", linewidth=0.3, picker=True)
         ax2.set_xlabel('日付')
-        ax2.set_ylabel('Temp (℃)')
+        ax2.set_ylabel('Temp (℃) / Power(kW) / Cell Voltage deff(V)')
         ax2.set_xticks(range(0, len(x), 800))
         ax2.set_xticklabels(x[::800], rotation=45)
+        ax2.set_yticks(np.arange(0, max(Cell_deff.max(), power.max()) + 1, 5))  # 5ピッチ
         ax2.legend(loc='lower left', bbox_to_anchor=(0, 0), ncol=1)
-        ax2.set_title('各温度')
-        ax2.grid(axis='y')
+        ax2.set_title('各温度・出力・電圧差')
+        ax2.grid(axis='y', which='major')  # y軸グリッド
+
+        ax6 = ax2.twinx()
+        ax6.spines['right'].set_position(('outward', 0))
+        l_hx, = ax6.plot(x, hx, label='Hx', color="#ff0000", linewidth=0.8, picker=True)
+        l_gsoh, = ax6.plot(x, gids_h, color="#ff00d4", label='Gids SOH', linewidth=0.5, picker=True)
+        l_soh, = ax6.plot(x, soh, color="#244cff", label='SOH', linewidth=0.5, picker=True)
+        ax6.set_ylabel('Hx / SOH', color="#ff0000")
+        ax6.tick_params(axis='y', labelcolor="#ff0000")
+        ax6.yaxis.set_label_position('right')
+        ax6.yaxis.set_ticks_position('right')
+        ax6.legend(loc='upper right', bbox_to_anchor=(1, 1), ncol=1)
+        ax6.grid(axis='y', which='major')  # y軸グリッド
 
         # 右上: セル最大・最小電圧
-        ax3 = axs[0, 1]
         l_max, = ax3.plot(x, cell_max_voltage, color="#8301fd", label='Cell Max Voltage', linewidth=0.5, picker=True)
         l_min, = ax3.plot(x, cell_min_voltage, color="#65e8ff", linestyle='--', label='Cell Min Voltage', linewidth=0.5, picker=True)
         ax3.set_xlabel('日付')
         ax3.set_ylabel('Cell Voltage(V)')
         ax3.set_xticks(range(0, len(x), 800))
         ax3.set_xticklabels(x[::800], rotation=45)
-        ax3.set_ylim(3.3, 4.4)
+        ax3.set_ylim(3.3, 4.3)
+        ax3.set_yticks(np.arange(3.3, 4.5, 0.2))  # 0.2Vピッチ
         ax3.legend(loc='lower left', bbox_to_anchor=(0, 0), ncol=1)
         ax3.set_title('セル電圧')
-        ax3.grid(axis='y')
+        ax3.grid(axis='y' , which='major')  # y軸グリッド
 
         # 右下: 走行距離
-        ax4 = axs[1, 1]
-        l_odo, = ax4.plot(x, odo, color="#FFBB00", label='Odo', linewidth=0.8, picker=True)
-        ax4.set_xlabel('日付')
-        ax4.set_ylabel('Odo(km)')
-        ax4.set_xticks(range(0, len(x), 800))
-        ax4.set_xticklabels(x[::800], rotation=45)
-        ax4.set_ylim(bottom=10000)
-        ax4.legend(loc='lower left', bbox_to_anchor=(0, 0), ncol=1)
-        ax4.set_title('走行距離')
-        ax4.grid(axis='y')
+        #ax4 = axs[2, 1]
+        #l_odo, = ax4.plot(x, odo, color="#FFBB00", label='Odo', linewidth=0.8, picker=True)
+        #ax4.set_xlabel('日付')
+        #ax4.set_ylabel('Odo(km)')
+        #ax4.set_xticks(range(0, len(x), 800))
+        #ax4.set_xticklabels(x[::800], rotation=45)
+        #ax4.set_ylim(bottom=10000)
+        #ax4.legend(loc='lower left', bbox_to_anchor=(0, 0), ncol=1)
+        #ax4.set_title('走行距離')
+        #ax4.grid(axis='y')
 
         plt.tight_layout()
         plt.suptitle('LeafSpy Logdata', fontname='MS Gothic', fontsize=16, y=1.02)
@@ -236,6 +270,40 @@ if folder_path:
             fig2.show()
 
         fig.canvas.mpl_connect('pick_event', on_pick)
+
+        cursor_line = None
+        cursor_text = None
+
+        def on_mouse_move(event):
+            global cursor_line, cursor_text
+            ax = event.inaxes
+            if ax is None or event.xdata is None or event.ydata is None:
+                if cursor_line:
+                    cursor_line.remove()
+                    cursor_line = None
+                if cursor_text:
+                    cursor_text.remove()
+                    cursor_text = None
+                fig.canvas.draw_idle()
+                return
+
+            # グリッド線を表示
+            if cursor_line:
+                cursor_line.set_xdata([event.xdata, event.xdata])
+            else:
+                cursor_line = ax.axvline(event.xdata, color='gray', linestyle='--', linewidth=1)
+
+            # データ値を表示
+            if cursor_text:
+                cursor_text.set_position((event.xdata, event.ydata))
+                cursor_text.set_text(f"{event.xdata:.2f}\ny={event.ydata:.2f}")
+            else:
+                cursor_text = ax.text(event.xdata, event.ydata, f"x={event.xdata:.2f}\ny={event.ydata:.2f}",
+                                  fontsize=9, color='black', bbox=dict(facecolor='white', alpha=0.7))
+
+            fig.canvas.draw_idle()
+
+        fig.canvas.mpl_connect('motion_notify_event', on_mouse_move)
 
         plt.show()
 else:
