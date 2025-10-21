@@ -19,6 +19,8 @@ import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import filedialog
 from matplotlib import font_manager
+import jpholiday
+import datetime
 
 # 日本語フォントの設定
 plt.rcParams['font.family'] = 'MS Gothic'  # Windows の場合
@@ -31,6 +33,16 @@ NIGHT_HOURS = list(range(23, 24)) + list(range(0, 7))  # 23時,0-6時
 
 # 但し上のrangeは"時間"ではなく、CSVの時間カラムインデックスを計算する関係で調整が必要
 # 実際にはCSVの10列目が0時-1時のため、0時カラムの列インデックス = 9
+
+def is_holiday(date):
+    """土日祝日判定"""
+    if isinstance(date, str):
+        date = pd.to_datetime(date)
+    # 土日判定
+    if date.weekday() >= 5:  # 5=土曜日, 6=日曜日
+        return True
+    # 祝日判定
+    return jpholiday.is_holiday(date)
 
 def load_csv(path: Path) -> pd.DataFrame:
     # try common encodings if utf-8 fails (cp932/shift_jis on Windows)
@@ -78,13 +90,48 @@ def parse_and_aggregate(df: pd.DataFrame) -> pd.DataFrame:
         return row[cols].sum()
 
     # 時間帯定義 (hours numbers)
-    day_hours = list(range(9, 18))  # 9～17時 inclusive (9..17)
-    home_hours = list(range(7, 9)) + list(range(17, 23))  # 7-8,17-22
+    # 通常の平日定義
+    default_day_hours = list(range(9, 18))  # 9～17時 inclusive (9..17)
+    default_home_hours = list(range(7, 9)) + list(range(17, 23))  # 7-8,17-22
     night_hours = list(range(23, 24)) + list(range(0, 7))  # 23,0-6
 
-    df['day'] = df_hourly.apply(lambda r: r[[hour_to_col[h] for h in day_hours]].sum(), axis=1)
-    df['home'] = df_hourly.apply(lambda r: r[[hour_to_col[h] for h in home_hours]].sum(), axis=1)
-    df['night'] = df_hourly.apply(lambda r: r[[hour_to_col[h] for h in night_hours]].sum(), axis=1)
+    # 各行ごとに日付を見て土日祝なら9-17をホームタイムにする
+    # 結果を格納するカラムを初期化
+    df['day'] = 0.0
+    df['home'] = 0.0
+    df['night'] = 0.0
+
+    # iterate rows by index to access date and hourly values together
+    months_list = list(hour_to_col.keys())  # 0..23
+    for idx in df.index:
+        date_val = df.at[idx, 'date']
+        # If date parsing failed, treat as weekday (conservative)
+        try:
+            is_hol = is_holiday(date_val)
+        except Exception:
+            is_hol = False
+
+        if is_hol:
+            # 土日祝日は9-17をホームタイム扱い -> ホームは7-22、デイは無し
+            day_h = []
+            home_h = list(range(7, 23))  # 7..22
+        else:
+            day_h = default_day_hours
+            home_h = default_home_hours
+
+        # sum values from df_hourly for this row
+        try:
+            df.at[idx, 'day'] = df_hourly.loc[idx, [hour_to_col[h] for h in day_h]].sum() if day_h else 0.0
+            df.at[idx, 'home'] = df_hourly.loc[idx, [hour_to_col[h] for h in home_h]].sum() if home_h else 0.0
+            df.at[idx, 'night'] = df_hourly.loc[idx, [hour_to_col[h] for h in night_hours]].sum()
+        except Exception:
+            # fallback to zero if something unexpected occurs
+            df.at[idx, 'day'] = 0.0
+            df.at[idx, 'home'] = 0.0
+            try:
+                df.at[idx, 'night'] = df_hourly.loc[idx, [hour_to_col[h] for h in night_hours]].sum()
+            except Exception:
+                df.at[idx, 'night'] = 0.0
 
     # 月単位で集計
     df['year_month'] = df['date'].dt.to_period('M')
@@ -111,24 +158,39 @@ def plot_hourly(df: pd.DataFrame, year: int, month: int, day: int):
     values = row.iloc[0][hourly_cols].astype(float).values
     # 時間帯ごとに色分け
     colors = []
+    try:
+        is_hol = is_holiday(target_date)
+    except Exception:
+        is_hol = False
+
     for h in range(24):
-        if 9 <= h <= 17:
-            colors.append('#FFEB99')  # デイタイム
-        elif 7 <= h <= 8 or 17 < h <= 22:
-            colors.append('#99E699')  # ホームタイム
+        if is_hol:
+            # 土日祝日は9-17をホームタイム扱い
+            if 9 <= h <= 17 or (7 <= h <= 8) or (17 < h <= 22):
+                colors.append('#99E699')  # ホームタイム (休日は9-17含む)
+            elif 23 == h or 0 <= h <= 6:
+                colors.append('#99CCFF')  # ナイトタイム
+            else:
+                colors.append('#99CCFF')
         else:
-            colors.append('#99CCFF')  # ナイトタイム
+            if 9 <= h <= 17:
+                colors.append('#FFEB99')  # デイタイム
+            elif 7 <= h <= 8 or 17 < h <= 22:
+                colors.append('#99E699')  # ホームタイム
+            else:
+                colors.append('#99CCFF')  # ナイトタイム
     fig, ax = plt.subplots(figsize=(10,5))
     ax.bar(range(24), values, color=colors)
-    ax.set_xlabel('時')
+    #ax.set_xlabel('時')
     ax.set_ylabel('消費電力量 (kWh)')
     ax.set_title(f'{year}-{month:02d}-{day:02d} 時間単位の電力使用量')
     ax.set_xticks(range(24))
     # 凡例
     from matplotlib.patches import Patch
+    # 凡例: 注意書きとして休日は9-17がホームに含まれることをコメント
     legend_patches = [
-        Patch(color='#FFEB99', label='デイタイム(9-17時)'),
-        Patch(color='#99E699', label='ホームタイム(7-8,18-22時)'),
+        Patch(color='#FFEB99', label='デイタイム(平日:9-17時)'),
+        Patch(color='#99E699', label='ホームタイム(平日:7-8,18-22時。土日祝は9-17も含む)'),
         Patch(color='#99CCFF', label='ナイトタイム(23,0-6時)')
     ]
     ax.legend(handles=legend_patches, bbox_to_anchor=(1.05, 1), loc='upper left')
@@ -141,7 +203,10 @@ def plot_hourly(df: pd.DataFrame, year: int, month: int, day: int):
 
 def plot_daily(df: pd.DataFrame, year_month: str):
     # 指定月のデータを抽出
-    ym = pd.Period(year_month)
+    if isinstance(year_month, (pd.Timestamp, datetime.datetime, datetime.date)):
+        ym = pd.Period(year_month, freq='M')
+    else:
+        ym = pd.Period(str(year_month), freq='M')
     df_month = df[df['date'].dt.to_period('M') == ym]
     if df_month.empty:
         print(f"{year_month} のデータがありません")
@@ -161,7 +226,7 @@ def plot_daily(df: pd.DataFrame, year_month: str):
     }
     fig, ax = plt.subplots(figsize=(12,7))
     bars = daily[columns_order].plot(kind='bar', stacked=True, color=[colors[col] for col in columns_order], ax=ax, legend=False)
-    ax.set_xlabel('日')
+    #ax.set_xlabel('日')
     ax.set_ylabel('消費電力量 (kWh)')
     ax.set_title(f'{year_month} 日別・時間帯別電力使用量')
     handles, _ = ax.get_legend_handles_labels()
@@ -252,8 +317,16 @@ def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame):
             
             if category == columns_order[0]:
                 legend_handles.append(bars)
+            # attach year/month metadata to each Rectangle so click handler can find the correct date
+            try:
+                for j, rect in enumerate(bars):
+                    # months is range(1,13) so index j corresponds to months[j]
+                    rect._year = year
+                    rect._month = months[j]
+            except Exception:
+                pass
     
-    ax.set_xlabel('月')
+    #ax.set_xlabel('月')
     ax.set_ylabel('消費電力量 (kWh)')
     ax.set_title('月別・時間帯別電力使用量 (年比較)')
     
@@ -285,27 +358,24 @@ def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame):
     
     plt.tight_layout()
 
-    # クリックイベントの処理を追加
+    # クリックイベントの処理を追加（1つのハンドラに統合）
     def on_click(event):
         if event.inaxes != ax:
             return
-        
-        x_clicked = event.xdata
-        month_idx = int(x_clicked)
-        
-        # クリックされた位置から年を特定
-        bar_width = width * len(years)
-        relative_x = x_clicked - month_idx
-        year_idx = int(relative_x / width)
-        
-        if 0 <= month_idx < len(months) and 0 <= year_idx < len(years):
-            year = sorted(years)[year_idx]
-            month = months[month_idx]
-            year_month = f'{year}-{month:02d}'
-            
-            # 該当する年月のデータが存在する場合のみ日別グラフを表示
-            if any(ym.startswith(year_month) for ym in plot_data.index.strftime('%Y-%m')):
-                plot_daily(df, year_month)
+        for rect in ax.patches:
+            try:
+                contains, _ = rect.contains(event)
+            except Exception:
+                contains = False
+            if contains:
+                year = getattr(rect, '_year', None)
+                month = getattr(rect, '_month', None)
+                if year is not None and month is not None:
+                    year_month = f'{year}-{int(month):02d}'
+                    # 存在する年月なら表示
+                    if any(ym.startswith(year_month) for ym in plot_data.index.strftime('%Y-%m')):
+                        plot_daily(df, year_month)
+                break
 
     fig.canvas.mpl_connect('button_press_event', on_click)
     # 100kWh単位でグリッド線
@@ -314,20 +384,7 @@ def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame):
     ax.yaxis.set_major_locator(ticker.MultipleLocator(100))
     plt.tight_layout()
 
-    # クリックイベント
-    def on_click(event):
-        if event.inaxes != ax:
-            return
-        # x座標からバーのインデックスを取得
-        for rect in ax.patches:
-            if rect.contains(event)[0]:
-                idx = int(rect.get_x() + rect.get_width()/2 + 0.5)
-                if 0 <= idx < len(plot_data.index):
-                    year_month = plot_data.index[idx]
-                    plot_daily(df, year_month)
-                break
-
-    fig.canvas.mpl_connect('button_press_event', on_click)
+    # (以前の重複ハンドラは削除済み)
     plt.show()
 
 
