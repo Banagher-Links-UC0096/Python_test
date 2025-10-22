@@ -21,6 +21,7 @@ from tkinter import filedialog
 from matplotlib import font_manager
 import jpholiday
 import datetime
+import time
 
 # 日本語フォントの設定
 plt.rcParams['font.family'] = 'MS Gothic'  # Windows の場合
@@ -43,6 +44,181 @@ def is_holiday(date):
         return True
     # 祝日判定
     return jpholiday.is_holiday(date)
+
+
+# ---- 料金関連の定義とヘルパー ----
+# 時間帯単価（円/kWh）: 適用期間は ~2023年3月以前, ~2024年3月以前, それ以後
+PRICE_PERIODS = [
+    # (start_inclusive, end_inclusive, prices)
+    (None, pd.Timestamp('2023-03-31'), {'day': 33.97, 'home': 25.91, 'night': 15.89}),
+    (pd.Timestamp('2023-04-01'), pd.Timestamp('2024-03-31'), {'day': 34.21, 'home': 26.15, 'night': 16.22}),
+    (pd.Timestamp('2024-04-01'), None, {'day': 34.06, 'home': 26.00, 'night': 16.11}),
+]
+
+# 再エネ賦課金単価: 毎年5月に更新 -> その年の5月から翌年4月まで有効とする
+RENEWABLE_BY_YEAR = {
+    2022: 3.45,
+    2023: 1.40,
+    2024: 3.49,
+    2025: 3.98,
+}
+
+# 燃料費調整単価: 月次 (円/kWh)
+FUEL_ADJ = {
+    "2023-04": 2.93,
+    "2023-05": 1.95,
+    "2023-06": 0.60,
+    "2023-07":-0.94,
+    "2023-08":-2.57,
+    "2023-09":-3.74,
+    "2023-10":-0.73,
+    "2023-11":-0.96,
+    "2023-12":-1.10,
+    "2024-01":-1.01,
+    "2024-02":-0.82,
+    "2024-03":-0.31,
+    "2024-04":-0.10,
+    "2024-05": 0.04,
+    "2024-06": 1.51,
+    "2024-07": 2.84,
+    "2024-08": 2.54,
+    "2024-09":-1.55,
+    "2024-10":-1.25,
+    "2024-11": 0.30,
+    "2024-12": 2.59,
+    "2025-01": 2.33,
+    "2025-02":-0.15,
+    "2025-03": 0.06,
+    "2025-04": 1.64,
+    "2025-05": 2.84,
+    "2025-06": 2.63,
+    "2025-07": 1.98,
+    "2025-08":-0.49,
+    "2025-09":-1.21,
+    "2025-10":-1.02,
+    "2025-11": 0.93,
+}
+
+def get_unit_prices_for_date(date):
+    """指定日のデイ/ホーム/ナイト単価を返す（円/kWh）。"""
+    if pd.isna(date):
+        # default to latest
+        return PRICE_PERIODS[-1][2]
+    if isinstance(date, (pd.Timestamp, datetime.date)):
+        dt = pd.Timestamp(date)
+    else:
+        dt = pd.to_datetime(date)
+    for start, end, prices in PRICE_PERIODS:
+        if (start is None or dt >= start) and (end is None or dt <= end):
+            return prices
+    return PRICE_PERIODS[-1][2]
+
+def get_renewable_unit_for_date(date):
+    """再エネ賦課金単価を返す。毎年5月に切替: 例) 2023年5月～2024年4月は RENEWABLE_BY_YEAR[2023]"""
+    if isinstance(date, (pd.Timestamp, datetime.date)):
+        dt = pd.Timestamp(date)
+    else:
+        dt = pd.to_datetime(date)
+    year = dt.year
+    # if month < 5, use previous year's value (e.g., 2024-04 uses 2023 value)
+    key_year = year if dt.month >= 5 else year - 1
+    return RENEWABLE_BY_YEAR.get(key_year, 0.0)
+
+def get_fuel_adj_for_date(date):
+    if isinstance(date, (pd.Timestamp, datetime.date)):
+        dt = pd.Timestamp(date)
+    else:
+        dt = pd.to_datetime(date)
+    key = f"{dt.year:04d}-{dt.month:02d}"
+    return FUEL_ADJ.get(key, 0.0)
+
+def compute_cost_from_parts(date, day_kwh, home_kwh, night_kwh):
+    """日単位のエネルギー構成からその日の電気料金（円）を計算する。"""
+    prices = get_unit_prices_for_date(date)
+    renew = get_renewable_unit_for_date(date)
+    fuel = get_fuel_adj_for_date(date)
+    total = float(day_kwh + home_kwh + night_kwh)
+    cost = day_kwh * prices['day'] + home_kwh * prices['home'] + night_kwh * prices['night']
+    # 再エネと燃料調整は総使用量に対して加算
+    cost += total * (renew + fuel)
+    return cost
+
+# Timestamp of last figure creation to avoid cascade save on same click
+LAST_FIG_OPEN = 0.0
+
+
+def connect_save_on_bg_click(fig, file_path: Path = None, prefix: str = 'plot'):
+    """図の背景（プロット要素以外）をクリックしたらPNGで保存するハンドラを接続する。
+    保存先は file_path の親フォルダ（file_path が None の場合はカレントディレクトリ）。
+    ファイル名: <stem>_<prefix>_YYYYmmdd_HHMMSS.png
+    """
+    out_dir = Path(file_path).parent if file_path is not None else Path.cwd()
+    stem = Path(file_path).stem if file_path is not None else 'plot'
+
+    def on_click_save(event):
+        # Only react on double-click to trigger save
+        if not getattr(event, 'dblclick', False):
+            return
+
+        # if a figure was just opened very recently, ignore this event to avoid cascade saving
+        try:
+            if time.time() - LAST_FIG_OPEN < 0.35:
+                return
+        except Exception:
+            pass
+        # クリックがどの axes でもない（図の余白）なら保存
+        if event.inaxes is None:
+            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            fname = out_dir / f"{stem}_{prefix}_{ts}.png"
+            try:
+                fig.savefig(fname, bbox_inches='tight')
+                print(f'Saved figure to {fname}')
+            except Exception as e:
+                print('Failed to save figure:', e)
+            return
+
+        # クリックがすでに何らかのデータArtistに当たっているかどうか調べる
+        # (Axesの背景や凡例、スパイン等は無視する)
+        from matplotlib.lines import Line2D
+        from matplotlib.collections import Collection
+        from matplotlib.patches import Patch
+        from matplotlib.image import AxesImage
+        from matplotlib.legend import Legend
+
+        data_types = (Line2D, Collection, Patch, AxesImage)
+
+        for ax in fig.axes:
+            for art in ax.findobj(lambda a: isinstance(a, data_types)):
+                # ignore axes background patch
+                try:
+                    if art is ax.patch:
+                        continue
+                    # ignore legend artists
+                    if isinstance(art, Legend):
+                        continue
+                    # some patches (like axis background) are caught above; now test contains
+                    contains = False
+                    try:
+                        contains = art.contains(event)[0]
+                    except Exception:
+                        contains = False
+                    if contains:
+                        # アーティスト上のクリック -> 保存しない
+                        return
+                except Exception:
+                    continue
+
+        # ここまで来たら要素上ではないクリック --> 保存
+        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        fname = out_dir / f"{stem}_{prefix}_{ts}.png"
+        try:
+            fig.savefig(fname, bbox_inches='tight')
+            print(f'Saved figure to {fname}')
+        except Exception as e:
+            print('Failed to save figure:', e)
+
+    fig.canvas.mpl_connect('button_press_event', on_click_save)
+
 
 def load_csv(path: Path) -> pd.DataFrame:
     # try common encodings if utf-8 fails (cp932/shift_jis on Windows)
@@ -145,7 +321,7 @@ def parse_and_aggregate(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # 日ごとのグラフを表示する関数
-def plot_hourly(df: pd.DataFrame, year: int, month: int, day: int):
+def plot_hourly(df: pd.DataFrame, year: int, month: int, day: int, file_path: Path = None):
     # 指定日のデータを抽出
     target_date = pd.Timestamp(year=year, month=month, day=day)
     row = df[df['date'] == target_date]
@@ -180,6 +356,14 @@ def plot_hourly(df: pd.DataFrame, year: int, month: int, day: int):
             else:
                 colors.append('#99CCFF')  # ナイトタイム
     fig, ax = plt.subplots(figsize=(10,5))
+    global LAST_FIG_OPEN
+    LAST_FIG_OPEN = time.time()
+    # ウインドウタイトルをファイルパスに設定
+    if file_path is not None:
+        try:
+            fig.canvas.manager.set_window_title(str(file_path))
+        except Exception:
+            pass
     ax.bar(range(24), values, color=colors)
     #ax.set_xlabel('時')
     ax.set_ylabel('消費電力量 (kWh)')
@@ -198,10 +382,46 @@ def plot_hourly(df: pd.DataFrame, year: int, month: int, day: int):
     ax.yaxis.grid(True, which='major', linestyle='--', color='gray', alpha=0.7)
     import matplotlib.ticker as ticker
     ax.yaxis.set_major_locator(ticker.MultipleLocator(0.5))
+    # 右軸に料金をプロットする: 時間ごとの単価は日付基準で同じと仮定
+    # 各時間のコストは時間ごとのkWh * 該当時間帯単価 + kWh * (再エネ + 燃料)
+    # 再エネ/燃料は日次合計に対して加算するため、ここでは時間ごとに按分して表示
+    # 日次の合計再エネ+燃料単価
+    renew = get_renewable_unit_for_date(target_date)
+    fuel = get_fuel_adj_for_date(target_date)
+    prices = get_unit_prices_for_date(target_date)
+
+    # 時間ごとの単価を作る
+    hourly_unit = []
+    for h in range(24):
+        # 休日は9-17がホーム扱い
+        if is_hol:
+            if 7 <= h <= 22:
+                band = 'home'
+            elif 23 == h or 0 <= h <= 6:
+                band = 'night'
+            else:
+                band = 'night'
+        else:
+            if 9 <= h <= 17:
+                band = 'day'
+            elif 7 <= h <= 8 or 18 <= h <= 22:
+                band = 'home'
+            else:
+                band = 'night'
+        hourly_unit.append(prices[band] + renew + fuel)
+
+    hourly_costs = values * np.array(hourly_unit)
+    ax2 = ax.twinx()
+    ax2.plot(range(24), hourly_costs, color='red', marker='o', linewidth=0.5, label='電気料金 (円)')
+    ax2.set_ylabel('電気料金 (円)')
+    ax2.yaxis.grid(False)
+    ax2.legend(loc='upper right')
+    # connect save-on-background-click
+    connect_save_on_bg_click(fig, file_path=file_path, prefix=f'hourly_{year}_{month:02d}_{day:02d}')
     plt.tight_layout()
     plt.show()
 
-def plot_daily(df: pd.DataFrame, year_month: str):
+def plot_daily(df: pd.DataFrame, year_month: str, file_path: Path = None):
     # 指定月のデータを抽出
     if isinstance(year_month, (pd.Timestamp, datetime.datetime, datetime.date)):
         ym = pd.Period(year_month, freq='M')
@@ -225,6 +445,13 @@ def plot_daily(df: pd.DataFrame, year_month: str):
         'night': 'ナイトタイム'
     }
     fig, ax = plt.subplots(figsize=(12,7))
+    global LAST_FIG_OPEN
+    LAST_FIG_OPEN = time.time()
+    if file_path is not None:
+        try:
+            fig.canvas.manager.set_window_title(str(file_path))
+        except Exception:
+            pass
     bars = daily[columns_order].plot(kind='bar', stacked=True, color=[colors[col] for col in columns_order], ax=ax, legend=False)
     #ax.set_xlabel('日')
     ax.set_ylabel('消費電力量 (kWh)')
@@ -237,130 +464,154 @@ def plot_daily(df: pd.DataFrame, year_month: str):
     ax.yaxis.set_major_locator(ticker.MultipleLocator(5))
     plt.tight_layout()
 
+    # attach day metadata to each bar rectangle using containers (reliable)
+    days = daily.index.tolist()
+    bar_rects = []
+    for cont in getattr(ax, 'containers', []):
+        for idx, rect in enumerate(cont):
+            if idx < len(days):
+                setattr(rect, '_day', int(days[idx]))
+                bar_rects.append(rect)
+
     # クリックイベントで時間単位グラフを表示
     def on_click(event):
-        if event.inaxes != ax:
-            return
-        for rect in ax.patches:
-            if rect.contains(event)[0]:
-                idx = int(rect.get_x() + rect.get_width()/2 + 0.5)
-                days = daily.index.tolist()
-                if 0 <= idx < len(days):
-                    day = days[idx]
-                    # 年月取得
-                    year, month = map(int, year_month.split('-'))
-                    plot_hourly(df, year, month, day)
+        # Try all axes in the figure, not just ax
+        found = False
+        for axes in plt.gcf().axes:
+            for rect in getattr(axes, 'patches', []):
+                try:
+                    contains = rect.contains(event)[0]
+                except Exception:
+                    contains = False
+                if contains:
+                    day = getattr(rect, '_day', None)
+                    if day is not None:
+                        year, month = map(int, year_month.split('-'))
+                        plot_hourly(df, year, month, int(day), file_path=file_path)
+                    found = True
+                    break
+            if found:
                 break
+
     fig.canvas.mpl_connect('button_press_event', on_click)
+    # 日別の料金を計算して右軸に描画
+    # daily は day/home/night のkWh合計
+    # 各日のコストを compute_cost_from_parts で計算
+    costs = []
+    for day_idx in daily.index:
+        # find corresponding date in df_month
+        date_row = df_month[df_month['date'].dt.day == day_idx]
+        if not date_row.empty:
+            # sum per day already aggregated
+            d = date_row.iloc[0]
+            c = compute_cost_from_parts(d['date'], d['day'], d['home'], d['night'])
+        else:
+            c = 0.0
+        costs.append(c)
+
+    ax2 = ax.twinx()
+    ax2.plot(np.arange(len(daily.index)), costs, color='red', marker='o', linewidth=0.5, label='電気料金 (円)')
+    ax2.set_ylabel('電気料金 (円)')
+    ax2.legend(loc='upper right')
+    # connect save-on-background-click
+    connect_save_on_bg_click(fig, file_path=file_path, prefix=f'daily_{ym.year}_{ym.month:02d}')
+    plt.tight_layout()
     plt.show()
 
 # 月別グラフをウインドウ表示し、クリックで日別グラフを表示
-def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame):
+def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame, file_path: Path = None):
+    """月別積み上げ棒グラフ（年比較）を描画し、年別の月次電気料金を色分けの折れ線で表示する。
+    バーをクリックすると該当年月の日別グラフを開く。
+    """
     columns_order = ['night', 'home', 'day']
+    labels = {'day': 'デイタイム', 'home': 'ホームタイム', 'night': 'ナイトタイム'}
+
+    # copy and normalize index to Timestamp (first day of month)
     plot_data = monthly[columns_order].copy()
-    
-    # 年月を年と月に分割
-    plot_data.index = pd.to_datetime(plot_data.index + '-01')
-    years = plot_data.index.year.unique()
-    months = range(1, 13)
-    
+    plot_data.index = pd.to_datetime(plot_data.index.astype(str) + '-01')
+
+    years = sorted(plot_data.index.year.unique())
+    months = list(range(1, 13))
+
     # 色の基本値を設定
     base_colors = {
         'day': (1.0, 0.92, 0.6),    # #FFEB99
         'home': (0.6, 0.9, 0.6),    # #99E699
         'night': (0.6, 0.8, 1.0)    # #99CCFF
     }
-    
-    labels = {
-        'day': 'デイタイム',
-        'home': 'ホームタイム',
-        'night': 'ナイトタイム'
-    }
-    
-    fig, ax = plt.subplots(figsize=(15,7))
-    
-    # 各月のx軸位置を計算
+
+    fig, ax = plt.subplots(figsize=(15, 7))
+    global LAST_FIG_OPEN
+    LAST_FIG_OPEN = time.time()
+    if file_path is not None:
+        try:
+            fig.canvas.manager.set_window_title(str(file_path))
+        except Exception:
+            pass
+
     x = np.arange(len(months))
-    width = 0.8 / len(years)  # バーの幅
-    
-    # 年ごとにバーを描画（古い年から新しい年へ）
-    legend_handles = []
-    for i, year in enumerate(sorted(years)):  # 古い年から順に処理
-        # 古い年ほど濃い色にする（alphaが小さいほど濃い）
-        alpha = 0.7 + (0.3 * i / (len(years) - 1)) if len(years) > 1 else 1.0
-        
-        year_colors = {
-            category: tuple(c * alpha for c in base_colors[category])
-            for category in columns_order
-        }
-        
-        # 月ごとのデータを抽出
-        year_data = []
-        for month in months:
-            try:
-                idx = pd.Timestamp(f'{year}-{month:02d}-01')
-                if idx in plot_data.index:
-                    year_data.append(plot_data.loc[idx])
-                else:
-                    year_data.append(pd.Series({col: 0 for col in columns_order}))
-            except:
-                year_data.append(pd.Series({col: 0 for col in columns_order}))
-        
-        year_df = pd.DataFrame(year_data, columns=columns_order)
+    width = 0.8 / max(1, len(years))
+
+    # 描画: 年ごとに並べた積み上げ棒
+    for i, year in enumerate(years):
+        year_rows = []
+        for m in months:
+            ts = pd.Timestamp(f'{year}-{m:02d}-01')
+            if ts in plot_data.index:
+                year_rows.append(plot_data.loc[ts])
+            else:
+                year_rows.append(pd.Series({c: 0.0 for c in columns_order}))
+        year_df = pd.DataFrame(year_rows, columns=columns_order)
+
         bottom = np.zeros(len(months))
-        
+        # 少しずつ色を変えるためalphaを用いる
+        alpha = 0.7 + (0.3 * i / (len(years) - 1)) if len(years) > 1 else 1.0
         for category in columns_order:
-            bars = ax.bar(x + width * i, year_df[category], width,
-                         bottom=bottom, color=year_colors[category],
-                         label=f'{year}年 {labels[category]}' if category == columns_order[0] else None)
+            color = tuple(c * alpha for c in base_colors[category])
+            bars = ax.bar(x + i * width, year_df[category].values, width, bottom=bottom, color=color)
+            # attach metadata for click handling
+            for j, rect in enumerate(bars):
+                rect._year = year
+                rect._month = months[j]
             bottom += year_df[category].values
-            
-            if category == columns_order[0]:
-                legend_handles.append(bars)
-            # attach year/month metadata to each Rectangle so click handler can find the correct date
-            try:
-                for j, rect in enumerate(bars):
-                    # months is range(1,13) so index j corresponds to months[j]
-                    rect._year = year
-                    rect._month = months[j]
-            except Exception:
-                pass
-    
-    #ax.set_xlabel('月')
+
+    # 軸・ラベル設定
     ax.set_ylabel('消費電力量 (kWh)')
     ax.set_title('月別・時間帯別電力使用量 (年比較)')
-    
-    # X軸の設定
     ax.set_xticks(x + width * (len(years) - 1) / 2)
     ax.set_xticklabels([f'{m}月' for m in months])
-    
-    # グリッド線の設定
     ax.yaxis.grid(True, which='major', linestyle='--', color='gray', alpha=0.7)
     import matplotlib.ticker as ticker
     ax.yaxis.set_major_locator(ticker.MultipleLocator(100))
-    
-    # 凡例の作成：カテゴリと年の組み合わせ
-    handles = []
-    labels_list = []
-    
-    # まず年ごとの凡例エントリを作成
-    for year in sorted(years):
-        for category in columns_order:
-            i = list(sorted(years)).index(year)
-            alpha = 0.7 + (0.3 * i / (len(years) - 1)) if len(years) > 1 else 1.0
-            color = tuple(c * alpha for c in base_colors[category])
-            patch = plt.Rectangle((0, 0), 1, 1, fc=color)
-            handles.append(patch)
-            labels_list.append(f'{year}年 {labels[category]}')
-    
-    # 凡例を配置
-    ax.legend(handles, labels_list, bbox_to_anchor=(1.05, 1), loc='upper left')
-    
-    plt.tight_layout()
 
-    # クリックイベントの処理を追加（1つのハンドラに統合）
+    # 凡例（時間帯）
+    from matplotlib.patches import Patch
+    legend_patches = [Patch(color=base_colors[c], label=labels[c]) for c in columns_order]
+    ax.legend(handles=legend_patches, bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    # 右軸: 年別の月次コストを年ごとに色分けしてプロット
+    ax2 = ax.twinx()
+    cmap = plt.get_cmap('tab10')
+    for i, year in enumerate(years):
+        year_costs = []
+        for m in months:
+            ts = pd.Timestamp(f'{year}-{m:02d}-01')
+            if ts in plot_data.index:
+                row = plot_data.loc[ts]
+                # row contains night/home/day
+                c = compute_cost_from_parts(ts, row.get('day', 0.0), row.get('home', 0.0), row.get('night', 0.0))
+            else:
+                c = 0.0
+            year_costs.append(c)
+        color = cmap(i % 10)
+        ax2.plot(x + i * width, year_costs, color=color, marker='o', linewidth=0.5, label=f'{year}年 電気料金')
+
+    ax2.set_ylabel('電気料金 (円)')
+    ax2.legend(bbox_to_anchor=(1.05, 0.5), loc='upper left')
+
+    # クリックイベント: バー（rect）に付与した metadata から年月を取得して日別を表示
     def on_click(event):
-        if event.inaxes != ax:
+        if event.inaxes not in (ax, ax2):
             return
         for rect in ax.patches:
             try:
@@ -372,19 +623,14 @@ def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame):
                 month = getattr(rect, '_month', None)
                 if year is not None and month is not None:
                     year_month = f'{year}-{int(month):02d}'
-                    # 存在する年月なら表示
-                    if any(ym.startswith(year_month) for ym in plot_data.index.strftime('%Y-%m')):
-                        plot_daily(df, year_month)
+                    plot_daily(df, year_month, file_path=file_path)
                 break
 
     fig.canvas.mpl_connect('button_press_event', on_click)
-    # 100kWh単位でグリッド線
-    ax.yaxis.grid(True, which='major', linestyle='--', color='gray', alpha=0.7)
-    import matplotlib.ticker as ticker
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(100))
-    plt.tight_layout()
 
-    # (以前の重複ハンドラは削除済み)
+    # connect save-on-background-click for the monthly figure
+    connect_save_on_bg_click(fig, file_path=file_path, prefix='monthly')
+    plt.tight_layout()
     plt.show()
 
 
@@ -420,7 +666,11 @@ def main():
     print(f'処理するファイル: {path}')
     df = load_csv(path)
     monthly, df_all = parse_and_aggregate(df)
-    plot_monthly_interactive(monthly, df_all)
+    plot_monthly_interactive(monthly, df_all, file_path=path)
 
 if __name__ == '__main__':
     main()
+
+if __name__ == '__main__':
+    main()
+
