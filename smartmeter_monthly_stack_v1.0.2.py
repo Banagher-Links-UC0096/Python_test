@@ -267,7 +267,7 @@ def parse_and_aggregate(df: pd.DataFrame) -> pd.DataFrame:
 
     # 時間帯定義 (hours numbers)
     # 通常の平日定義
-    default_day_hours = list(range(9, 18))  # 9～17時 inclusive (9..17)
+    default_day_hours = list(range(9, 17))  # 9～17時 inclusive (9..17)
     default_home_hours = list(range(7, 9)) + list(range(17, 23))  # 7-8,17-22
     night_hours = list(range(23, 24)) + list(range(0, 7))  # 23,0-6
 
@@ -473,10 +473,10 @@ def plot_daily(df: pd.DataFrame, year_month: str, file_path: Path = None):
                 setattr(rect, '_day', int(days[idx]))
                 bar_rects.append(rect)
 
-    # クリックイベントで時間単位グラフを表示
+    annotation = None
     def on_click(event):
-        # Try all axes in the figure, not just ax
-        found = False
+        nonlocal annotation
+        bar_clicked = False
         for axes in plt.gcf().axes:
             for rect in getattr(axes, 'patches', []):
                 try:
@@ -487,11 +487,46 @@ def plot_daily(df: pd.DataFrame, year_month: str, file_path: Path = None):
                     day = getattr(rect, '_day', None)
                     if day is not None:
                         year, month = map(int, year_month.split('-'))
-                        plot_hourly(df, year, month, int(day), file_path=file_path)
-                    found = True
+                        # ダブルクリックならサブウインドウ表示
+                        if getattr(event, 'dblclick', False):
+                            plot_hourly(df, year, month, int(day), file_path=file_path)
+                        else:
+                            # シングルクリックなら情報をグラフ上にアノテーション表示
+                            row = daily.loc[int(day)] if int(day) in daily.index else None
+                            if row is not None:
+                                date_row = df_month[df_month['date'].dt.day == int(day)]
+                                if not date_row.empty:
+                                    d = date_row.iloc[0]
+                                    cost = compute_cost_from_parts(d['date'], d['day'], d['home'], d['night'])
+                                else:
+                                    cost = 0.0
+                                msg = (
+                                    f'{year}年{month}月{int(day)}日\n'
+                                    f'デイ: {row.get("day",0.0):.2f}kWh  ホーム: {row.get("home",0.0):.2f}kWh  ナイト: {row.get("night",0.0):.2f}kWh\n'
+                                    f'合計: {row.get("day",0.0)+row.get("home",0.0)+row.get("night",0.0):.2f}kWh  料金: {cost:.0f}円'
+                                )
+                                if annotation is not None:
+                                    annotation.remove()
+                                x = rect.get_x() + rect.get_width()/2
+                                y = rect.get_y() + rect.get_height()
+                                # draw annotation on the top-most axes so it appears above twin axes (cost lines)
+                                top_ax = fig.axes[-1] if len(fig.axes) > 0 else axes
+                                # transform (x,y) from the original axes data coords to top_ax data coords
+                                try:
+                                    disp = axes.transData.transform((x, y))
+                                    xy_top = top_ax.transData.inverted().transform(disp)
+                                except Exception:
+                                    xy_top = (x, y)
+                                annotation = top_ax.annotate(msg, xy=xy_top, xytext=(0, 10), xycoords='data', textcoords='offset points',
+                                    ha='center', va='bottom', fontsize=10, bbox=dict(boxstyle='round,pad=0.3', fc='yellow', alpha=0.7), zorder=1000)
+                                annotation.set_clip_on(False)
+                                fig.canvas.draw_idle()
+                        bar_clicked = True
                     break
-            if found:
+            if bar_clicked:
                 break
+        # バー以外のダブルクリックはPNG保存（connect_save_on_bg_clickが担当）
+        # ここでは何もしない
 
     fig.canvas.mpl_connect('button_press_event', on_click)
     # 日別の料金を計算して右軸に描画
@@ -609,10 +644,10 @@ def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame, file_path:
     ax2.set_ylabel('電気料金 (円)')
     ax2.legend(bbox_to_anchor=(1.05, 0.5), loc='upper left')
 
-    # クリックイベント: バー（rect）に付与した metadata から年月を取得して日別を表示
+    annotation = None
     def on_click(event):
-        if event.inaxes not in (ax, ax2):
-            return
+        nonlocal annotation
+        bar_clicked = False
         for rect in ax.patches:
             try:
                 contains, _ = rect.contains(event)
@@ -623,11 +658,47 @@ def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame, file_path:
                 month = getattr(rect, '_month', None)
                 if year is not None and month is not None:
                     year_month = f'{year}-{int(month):02d}'
-                    plot_daily(df, year_month, file_path=file_path)
+                    # ダブルクリックならサブウインドウ表示
+                    if getattr(event, 'dblclick', False):
+                        plot_daily(df, year_month, file_path=file_path)
+                    else:
+                        # シングルクリックなら情報をグラフ上にアノテーション表示
+                        row = None
+                        try:
+                            idx = pd.Timestamp(f'{year}-{int(month):02d}-01')
+                            row = monthly.loc[f'{year}-{int(month):02d}']
+                        except Exception:
+                            pass
+                        if row is not None:
+                            cost = compute_cost_from_parts(idx, row.get('day',0.0), row.get('home',0.0), row.get('night',0.0))
+                            msg = (
+                                f'{year}年{int(month)}月\n'
+                                f'デイ: {row.get("day",0.0):.2f}kWh  ホーム: {row.get("home",0.0):.2f}kWh  ナイト: {row.get("night",0.0):.2f}kWh\n'
+                                f'合計: {row.get("day",0.0)+row.get("home",0.0)+row.get("night",0.0):.2f}kWh  料金: {cost:.0f}円'
+                            )
+                            # 既存annotation削除
+                            if annotation is not None:
+                                annotation.remove()
+                            # 棒グラフの中央上に表示
+                            x = rect.get_x() + rect.get_width()/2
+                            y = rect.get_y() + rect.get_height()
+                            # draw annotation on the top-most axes so it appears above twin axes (cost lines)
+                            top_ax = fig.axes[-1] if len(fig.axes) > 0 else ax
+                            try:
+                                disp = ax.transData.transform((x, y))
+                                xy_top = top_ax.transData.inverted().transform(disp)
+                            except Exception:
+                                xy_top = (x, y)
+                            annotation = top_ax.annotate(msg, xy=xy_top, xytext=(0, 10), xycoords='data', textcoords='offset points',
+                                ha='center', va='bottom', fontsize=10, bbox=dict(boxstyle='round,pad=0.3', fc='yellow', alpha=0.7), zorder=1000)
+                            annotation.set_clip_on(False)
+                            fig.canvas.draw_idle()
+                    bar_clicked = True
                 break
+        # バー以外のダブルクリックはPNG保存（connect_save_on_bg_clickが担当）
+        # ここでは何もしない
 
     fig.canvas.mpl_connect('button_press_event', on_click)
-
     # connect save-on-background-click for the monthly figure
     connect_save_on_bg_click(fig, file_path=file_path, prefix='monthly')
     plt.tight_layout()
@@ -670,7 +741,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-if __name__ == '__main__':
-    main()
-
