@@ -52,7 +52,7 @@ PRICE_PERIODS = [
     # (start_inclusive, end_inclusive, prices)
     (None, pd.Timestamp('2023-03-31'), {'day': 33.97, 'home': 25.91, 'night': 15.89}),
     (pd.Timestamp('2023-04-01'), pd.Timestamp('2024-03-31'), {'day': 34.21, 'home': 26.15, 'night': 16.22}),
-    (pd.Timestamp('2024-04-01'), None, {'day': 34.06, 'home': 26.00, 'night': 16.11}),
+    (pd.Timestamp('2025-01-01'), None, {'day': 34.06, 'home': 26.00, 'night': 16.11}),
 ]
 
 # 再エネ賦課金単価: 毎年5月に更新 -> その年の5月から翌年4月まで有効とする
@@ -416,6 +416,62 @@ def plot_hourly(df: pd.DataFrame, year: int, month: int, day: int, file_path: Pa
     ax2.set_ylabel('電気料金 (円)')
     ax2.yaxis.grid(False)
     ax2.legend(loc='upper right')
+    # --- 右側の凡例下に料金・集計表示を追加 ---
+    # 再エネ/燃料と時間帯単価、各時間帯合計と金額、総計を計算
+    total_kwh = float(np.nansum(values))
+    # build band list same as above
+    band_list = []
+    for h in range(24):
+        if is_hol:
+            if 7 <= h <= 22:
+                band = 'home'
+            elif 23 == h or 0 <= h <= 6:
+                band = 'night'
+            else:
+                band = 'night'
+        else:
+            if 9 <= h <= 17:
+                band = 'day'
+            elif 7 <= h <= 8 or 18 <= h <= 22:
+                band = 'home'
+            else:
+                band = 'night'
+        band_list.append(band)
+    band_sums = {'day': 0.0, 'home': 0.0, 'night': 0.0}
+    for h, v in enumerate(values):
+        band_sums[band_list[h]] += float(v)
+    # 基本料金（単価*kWh）
+    base_costs = {b: band_sums[b] * prices[b] for b in band_sums}
+    base_total = sum(base_costs.values())
+    renew_amount = total_kwh * renew
+    fuel_amount = total_kwh * fuel
+    total_cost = base_total + renew_amount + fuel_amount
+
+    unit_text = (f"適用単価:\n"
+                 f"デイタイム単価　 {prices['day']:.2f} 円/kWh\n"
+                 f"ホームタイム単価 {prices['home']:.2f} 円/kWh\n"
+                 f"ナイトタイム単価 {prices['night']:.2f} 円/kWh\n"
+                 f"再エネ賦課金単価 {renew:.2f} 円/kWh\n"
+                 f"燃料費調整単価　 {fuel:.2f} 円/kWh")
+
+    band_lines = (f"使用電力量:\n"
+                  f"デイタイム電力　 {band_sums['day']:.2f} kWh\n"
+                  f"ホームタイム電力 {band_sums['home']:.2f} kWh\n"
+                  f"ナイトタイム電力 {band_sums['night']:.2f} kWh\n"
+                  f"総電力量　　　　 {total_kwh:.2f} kWh")
+    
+    totals = (f"集計金額:\n"
+              f"デイタイム金額　 {base_costs['day']:.0f} 円\n"
+              f"ホームタイム金額 {base_costs['home']:.0f} 円\n"
+              f"ナイトタイム金額 {base_costs['night']:.0f} 円\n"
+              f"再エネ賦課金額　 {renew_amount:.2f} 円\n"
+              f"燃料調整費金額　 {fuel_amount:.2f} 円\n"
+              f"合計金額　　　　 {total_cost:.0f} 円")
+
+    summary_text = unit_text + "\n\n" + band_lines + "\n\n" + totals
+    # place the summary to the right of the axes, under the legend
+    ax.text(1.2, 0.8, summary_text, transform=ax.transAxes, ha='left', va='top', fontsize=9,
+        bbox=dict(boxstyle='round,pad=0.4', fc='white', ec='black', alpha=0.85))
     # connect save-on-background-click
     connect_save_on_bg_click(fig, file_path=file_path, prefix=f'hourly_{year}_{month:02d}_{day:02d}')
     plt.tight_layout()
@@ -453,7 +509,8 @@ def plot_daily(df: pd.DataFrame, year_month: str, file_path: Path = None):
         except Exception:
             pass
     bars = daily[columns_order].plot(kind='bar', stacked=True, color=[colors[col] for col in columns_order], ax=ax, legend=False)
-    #ax.set_xlabel('日')
+    # hide x-axis label (pandas may set it to 'date')
+    ax.set_xlabel('')
     ax.set_ylabel('消費電力量 (kWh)')
     ax.set_title(f'{year_month} 日別・時間帯別電力使用量')
     handles, _ = ax.get_legend_handles_labels()
@@ -472,6 +529,13 @@ def plot_daily(df: pd.DataFrame, year_month: str, file_path: Path = None):
             if idx < len(days):
                 setattr(rect, '_day', int(days[idx]))
                 bar_rects.append(rect)
+
+    # ensure x tick labels show day numbers and are not rotated
+    try:
+        ax.set_xticklabels([str(d) for d in days], rotation=0)
+    except Exception:
+        # fallback: set tick params
+        ax.tick_params(axis='x', rotation=0)
 
     annotation = None
     def on_click(event):
