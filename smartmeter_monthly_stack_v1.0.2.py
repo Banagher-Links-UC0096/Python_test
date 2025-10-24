@@ -52,7 +52,7 @@ PRICE_PERIODS = [
     # (start_inclusive, end_inclusive, prices)
     (None, pd.Timestamp('2023-03-31'), {'day': 33.97, 'home': 25.91, 'night': 15.89}),
     (pd.Timestamp('2023-04-01'), pd.Timestamp('2024-03-31'), {'day': 34.21, 'home': 26.15, 'night': 16.22}),
-    (pd.Timestamp('2025-01-01'), None, {'day': 34.06, 'home': 26.00, 'night': 16.11}),
+    (pd.Timestamp('2025-05-01'), None, {'day': 34.06, 'home': 26.00, 'night': 16.11}),
 ]
 
 # 再エネ賦課金単価: 毎年5月に更新 -> その年の5月から翌年4月まで有効とする
@@ -805,3 +805,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
