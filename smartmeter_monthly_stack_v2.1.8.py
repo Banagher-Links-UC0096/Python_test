@@ -1195,7 +1195,7 @@ def plot_daily(df: pd.DataFrame, year_month: str, file_path: Path = None, dessmo
         try:
             menu = tk.Menu(widget, tearoff=0)
             menu.add_command(label='グラフ保存', command=save_via_dialog)
-            menu.add_command(label='Dessmonitor', command=lambda: plot_daily_dessmonitor(df, year_month, file_path, dessmonitor_folder))
+            menu.add_command(label='Dessmonitorデータ反映', command=lambda: plot_daily_dessmonitor(df, year_month, file_path, dessmonitor_folder))
             try:
                 menu.tk_popup(widget.winfo_pointerx(), widget.winfo_pointery())
             finally:
@@ -1840,6 +1840,198 @@ def plot_daily(df: pd.DataFrame, year_month: str, file_path: Path = None, dessmo
 
 # 月別グラフをウインドウ表示し、クリックで日別グラフを表示
 def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame, file_path: Path = None, dessmonitor_folder: str = None):
+
+    # --- 年間（月別）Dessmonitor反映ウインドウ ---
+    def plot_monthly_dessmonitor(monthly: pd.DataFrame, df: pd.DataFrame, file_path: Path = None, dessmonitor_folder: str = None):
+        """月別Dessmonitorウインドウを表示する。グラフは日別Dessmonitorを参考に、月単位で集計・描画。"""
+        import glob, os
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import tkinter as tk
+        from tkinter import filedialog
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        # 月ごとに集計
+        months = sorted(list(set(df['date'].dt.to_period('M'))))
+        # 月ごとの電力会社データ
+        monthly_data = df.copy()
+        monthly_data['month'] = monthly_data['date'].dt.to_period('M')
+        month_group = monthly_data.groupby('month')[['day', 'home', 'night']].sum()
+        # Dessmonitorデータ・商用充電データを月ごとに集計
+        dess_month_total = {m: {'day':0.0, 'home':0.0, 'night':0.0} for m in months}
+        commercial_month_total = {m: {'day':0.0, 'home':0.0, 'night':0.0} for m in months}
+        import re
+        for m in months:
+            # その月の日付リスト
+            days = df[df['date'].dt.to_period('M')==m]['date'].dt.date.unique()
+            # 優先サブフォルダー名決定
+            year_str = str(m.year)
+            month_str = f"{m.year}-{m.month:02d}"
+            preferred_dirs = []
+            other_dirs = []
+            # サブフォルダー探索
+            for root, dirs, _ in os.walk(dessmonitor_folder):
+                for dname in dirs:
+                    dpath = os.path.join(root, dname)
+                    if month_str in dname:
+                        preferred_dirs.append(dpath)
+                    elif year_str in dname:
+                        preferred_dirs.append(dpath)
+                    else:
+                        other_dirs.append(dpath)
+            search_dirs = preferred_dirs + other_dirs
+            for d in days:
+                date_str = str(d)
+                dess_values = np.zeros(24)
+                commercial_hourly = np.zeros(24)
+                found = False
+                if dessmonitor_folder:
+                    # 優先ディレクトリから順に検索
+                    files = []
+                    for sdir in search_dirs:
+                        pattern = os.path.join(sdir, f"energy-storage-container-*-{date_str}.xlsx")
+                        files = glob.glob(pattern, recursive=False)
+                        if files:
+                            break
+                    # ルート直下も最後に検索
+                    if not files:
+                        pattern = os.path.join(dessmonitor_folder, f"**/energy-storage-container-*-{date_str}.xlsx")
+                        files = glob.glob(pattern, recursive=True)
+                    for f in files:
+                        try:
+                            ddf = pd.read_excel(f)
+                            ddf_sorted = ddf.iloc[::-1].sort_values(by=ddf.columns[0])
+                            ddf_sorted['hour'] = ddf_sorted.iloc[:,0].apply(lambda x: int(str(x)[11:13]) if isinstance(x,str) and len(x)>=13 else np.nan)
+                            for h in range(24):
+                                group = ddf_sorted[ddf_sorted['hour']==h]
+                                # 蓄電
+                                vals = group.iloc[:,30].values if len(group)>0 else []
+                                if len(vals) >= 2:
+                                    early = float(vals[0])
+                                    late = float(vals[-1])
+                                    if late >= early:
+                                        dess_values[h] += late - early
+                                # 商用充電
+                                vals_c = group.iloc[:,31].values if len(group)>0 and group.shape[1]>31 else []
+                                if len(vals_c) >= 2:
+                                    early_c = float(vals_c[0])
+                                    late_c = float(vals_c[-1])
+                                    if late_c >= early_c:
+                                        commercial_hourly[h] += late_c - early_c
+                            found = True
+                        except Exception:
+                            continue
+                # 時間帯ごとに集計
+                is_hol = is_holiday(pd.to_datetime(d))
+                for h in range(24):
+                    band = hour_to_band(h, is_hol)
+                    dess_month_total[m][band] += dess_values[h]
+                    commercial_month_total[m][band] += commercial_hourly[h]
+        # グラフ描画
+        fig, ax = plt.subplots(figsize=(12,7))
+        bar_width = 0.6
+        x = np.arange(len(months))
+        # プラス側: 電力会社データ（積み上げ棒グラフ）
+        bars = ax.bar(x, [month_group.loc[m]['night'] if m in month_group.index else 0 for m in months], width=bar_width, color=TIME_BANDS['night']['color'], label=TIME_BANDS['night']['label'], align='center')
+        bars_home = ax.bar(x, [month_group.loc[m]['home'] if m in month_group.index else 0 for m in months], width=bar_width, color=TIME_BANDS['home']['color'], bottom=[month_group.loc[m]['night'] if m in month_group.index else 0 for m in months], label=TIME_BANDS['home']['label'], align='center')
+        bars_day = ax.bar(x, [month_group.loc[m]['day'] if m in month_group.index else 0 for m in months], width=bar_width, color=TIME_BANDS['day']['color'], bottom=[(month_group.loc[m]['night']+month_group.loc[m]['home']) if m in month_group.index else 0 for m in months], label=TIME_BANDS['day']['label'], align='center')
+        # Dessmonitorデータ（月別・時間帯別集計の積み上げ棒グラフ、左y軸に統合、マイナス側）
+        dess_colors = {'day': '#b3e5fc', 'home': '#81d4fa', 'night': '#4fc3f7'}
+        dess_labels = {'day': 'デイタイム（蓄電）', 'home': 'ホームタイム（蓄電）', 'night': 'ナイトタイム（蓄電）'}
+        bottom = np.zeros(len(months))
+        for band in COLUMN_ORDER:
+            values = [-dess_month_total[m][band] for m in months]
+            ax.bar(x, values, width=bar_width, bottom=bottom, color=dess_colors[band], alpha=0.7, label=dess_labels[band], align='center')
+            bottom += values
+        # 商用充電データをdeepskyblueで重ねる（時間帯ごとに積み上げ、幅は半分）
+        commercial_bar_width = bar_width / 2
+        commercial_bottom = np.zeros(len(months))
+        for band in COLUMN_ORDER:
+            values = [commercial_month_total[m][band] for m in months]
+            ax.bar(x, values, width=commercial_bar_width, bottom=commercial_bottom, color='deepskyblue', alpha=0.7, label='商用充電' if band=='day' else "", align='center')
+            commercial_bottom += np.array(values)
+
+        # --- 金額グラフ追加 ---
+        # 電気料金（電力会社データ）
+        cost_list = []
+        # 蓄電節約金額（Dessmonitorデータ）
+        dess_saving_list = []
+        # 商用充電金額
+        commercial_cost_list = []
+        for m in months:
+            # 月の初日を代表日とする
+            date_for_price = pd.Timestamp(m.start_time)
+            # 電力会社データ
+            kwhs = month_group.loc[m] if m in month_group.index else {'day':0,'home':0,'night':0}
+            cost = compute_cost_from_parts(date_for_price, kwhs['day'], kwhs['home'], kwhs['night'])
+            cost_list.append(cost)
+            # 商用充電金額
+            comm_kwhs = commercial_month_total[m]
+            comm_cost = compute_cost_from_parts(date_for_price, comm_kwhs['day'], comm_kwhs['home'], comm_kwhs['night'])
+            commercial_cost_list.append(comm_cost)
+            # 蓄電節約金額
+            dess_kwhs = dess_month_total[m]
+            dess_saving = compute_cost_from_parts(date_for_price, dess_kwhs['day'], dess_kwhs['home'], dess_kwhs['night'])
+            dess_saving = dess_saving - comm_cost  # 商用充電金額を差し引く
+            dess_saving_list.append(dess_saving)
+            
+        ax2 = ax.twinx()
+        ax2.plot(x, cost_list, color='red', marker='o', linewidth=0.5, label='電気料金(円)')
+        ax2.plot(x, [-v for v in dess_saving_list], color='blue', marker='o', linewidth=0.5, label='蓄電節約金額(円)')
+        #ax2.plot(x, commercial_cost_list, color='deepskyblue', marker='o', linewidth=0.5, label='商用充電金額(円)')
+        ax2.set_ylabel('金額 (円)')
+        ax2.legend(loc='upper right')
+        # 0ラインを完全一致させる
+        left_ylim = ax.get_ylim()
+        min_ylim = min(0, left_ylim[0])
+        max_ylim = left_ylim[1]+5
+        ax.set_ylim(min_ylim, max_ylim)
+        ax2.set_ylim(min_ylim*40, max_ylim*40)# rough scaling factor
+        ax2.legend(loc='upper right')
+
+        # 軸・ラベル・タイトル
+        ax.set_ylabel('消費電力量 (kWh)')
+        ax.set_title('年間（月別）電力使用量・金額（Dessmonitor反映）')
+        ax.set_xticks(x)
+        ax.set_xticklabels([f'{m.month}月' for m in months])
+        ax.yaxis.grid(True, which='major', linestyle='--', color='gray', alpha=0.7)
+        import matplotlib.ticker as ticker
+        ax.yaxis.set_major_locator(ticker.MultipleLocator(50))
+        # 凡例
+        from matplotlib.patches import Patch
+        legend_patches = [Patch(color=TIME_BANDS[c]['color'], label=TIME_BANDS[c]['label']) for c in DISPLAY_ORDER]
+        legend_patches += [Patch(color=dess_colors[c], label=dess_labels[c]) for c in DISPLAY_ORDER]
+        legend_patches.append(Patch(color='deepskyblue', label='商用充電'))
+        ax.legend(handles=legend_patches, bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        # Tkウインドウ表示
+        win = tk.Toplevel() if tk._default_root else tk.Tk()
+        win.wm_title('年間（月別）Dessmonitor')
+        canvas = FigureCanvasTkAgg(fig, master=win)
+        canvas.draw()
+        widget = canvas.get_tk_widget()
+        widget.pack(side='top', fill='both', expand=1)
+        # 右クリックメニュー（グラフ保存）
+        def save_via_dialog():
+            try:
+                title = getattr(ax, 'get_title', lambda: "graph")()
+                fname = filedialog.asksaveasfilename(parent=win, defaultextension='.png', filetypes=[('PNG image','*.png')], initialfile=title if title else "graph")
+                if fname:
+                    fig.savefig(fname, bbox_inches='tight')
+                    print(f'Saved figure to {fname}')
+            except Exception as e:
+                print('Save failed:', e)
+        def show_context_menu(event):
+            try:
+                menu = tk.Menu(widget, tearoff=0)
+                menu.add_command(label='グラフ保存', command=save_via_dialog)
+                try:
+                    menu.tk_popup(widget.winfo_pointerx(), widget.winfo_pointery())
+                finally:
+                    menu.grab_release()
+            except Exception:
+                pass
+        widget.bind('<Button-3>', show_context_menu)
+        win.mainloop()
     """月別積み上げ棒グラフ（年比較）を描画し、年別の月次電気料金を色分けの折れ線で表示する。
     バーをクリックすると該当年月の日別グラフを開く。
     """
@@ -1924,9 +2116,13 @@ def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame, file_path:
         line._year = year  # 年情報を線に付加
 
     ax2.set_ylabel('電気料金 (円)')
-    # 固定表示: 右軸の下限を 0 にする
-    set_ax2_min_zero(ax2)
-    ax2.legend(loc='lower left')
+    # 0ラインを完全一致させる
+    left_ylim = ax.get_ylim()
+    min_ylim = min(0, left_ylim[0])
+    max_ylim = left_ylim[1]+5
+    ax.set_ylim(min_ylim, max_ylim)
+    ax2.set_ylim(min_ylim*40, max_ylim*40)# rough scaling factor
+    ax2.legend(loc='upper right')
 
     # 年別集計情報を表示
     year_totals = {}
@@ -2082,6 +2278,8 @@ def plot_monthly_interactive(monthly: pd.DataFrame, df: pd.DataFrame, file_path:
         try:
             menu = tk.Menu(widget, tearoff=0)
             menu.add_command(label='グラフ保存', command=save_via_dialog)
+            # 年間ウインドウにもDessmonitorメニューを追加
+            menu.add_command(label='Dessmonitorデータ反映', command=lambda: plot_monthly_dessmonitor(monthly, df, file_path, dessmonitor_folder))
             try:
                 menu.tk_popup(widget.winfo_pointerx(), widget.winfo_pointery())
             finally:
